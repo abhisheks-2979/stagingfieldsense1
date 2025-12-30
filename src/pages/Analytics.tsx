@@ -1096,7 +1096,7 @@ const Analytics = () => {
               <TabsTrigger value="retailers">Retailers</TabsTrigger>
               <TabsTrigger value="predictions">Predictions</TabsTrigger>
               <TabsTrigger value="calendar">Calendar</TabsTrigger>
-              <TabsTrigger value="sql-report">SQL Report</TabsTrigger>
+              <TabsTrigger value="sql-report">Report Me</TabsTrigger>
             </TabsList>
 
             {/* KPI Dashboard */}
