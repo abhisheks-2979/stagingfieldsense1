@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.12 (cd3cf9e)"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -1916,47 +1916,6 @@ export type Database = {
           },
         ]
       }
-      distributor_business_plan_months: {
-        Row: {
-          business_plan_id: string
-          created_at: string
-          id: string
-          month_name: string
-          month_number: number
-          quantity_target: number | null
-          target_revenue: number | null
-          updated_at: string
-        }
-        Insert: {
-          business_plan_id: string
-          created_at?: string
-          id?: string
-          month_name: string
-          month_number: number
-          quantity_target?: number | null
-          target_revenue?: number | null
-          updated_at?: string
-        }
-        Update: {
-          business_plan_id?: string
-          created_at?: string
-          id?: string
-          month_name?: string
-          month_number?: number
-          quantity_target?: number | null
-          target_revenue?: number | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "distributor_business_plan_months_business_plan_id_fkey"
-            columns: ["business_plan_id"]
-            isOneToOne: false
-            referencedRelation: "distributor_business_plans"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       distributor_business_plan_products: {
         Row: {
           business_plan_id: string
@@ -2002,7 +1961,6 @@ export type Database = {
           growth_percent: number | null
           id: string
           last_year_revenue: number | null
-          quantity_target: number | null
           retailer_id: string
           retailer_name: string
           target_revenue: number | null
@@ -2013,7 +1971,6 @@ export type Database = {
           growth_percent?: number | null
           id?: string
           last_year_revenue?: number | null
-          quantity_target?: number | null
           retailer_id: string
           retailer_name: string
           target_revenue?: number | null
@@ -2024,7 +1981,6 @@ export type Database = {
           growth_percent?: number | null
           id?: string
           last_year_revenue?: number | null
-          quantity_target?: number | null
           retailer_id?: string
           retailer_name?: string
           target_revenue?: number | null
@@ -2046,8 +2002,6 @@ export type Database = {
           distributor_id: string
           id: string
           notes: string | null
-          quantity_target: number | null
-          quantity_unit: string | null
           revenue_target: number | null
           territory_target: string | null
           updated_at: string
@@ -2059,8 +2013,6 @@ export type Database = {
           distributor_id: string
           id?: string
           notes?: string | null
-          quantity_target?: number | null
-          quantity_unit?: string | null
           revenue_target?: number | null
           territory_target?: string | null
           updated_at?: string
@@ -2072,8 +2024,6 @@ export type Database = {
           distributor_id?: string
           id?: string
           notes?: string | null
-          quantity_target?: number | null
-          quantity_unit?: string | null
           revenue_target?: number | null
           territory_target?: string | null
           updated_at?: string
@@ -3114,7 +3064,6 @@ export type Database = {
           aadhar_document_url: string | null
           address: string | null
           alternate_email: string | null
-          band: number | null
           certifications: Json | null
           created_at: string
           daily_da_allowance: number | null
@@ -3137,7 +3086,6 @@ export type Database = {
           aadhar_document_url?: string | null
           address?: string | null
           alternate_email?: string | null
-          band?: number | null
           certifications?: Json | null
           created_at?: string
           daily_da_allowance?: number | null
@@ -3160,7 +3108,6 @@ export type Database = {
           aadhar_document_url?: string | null
           address?: string | null
           alternate_email?: string | null
-          band?: number | null
           certifications?: Json | null
           created_at?: string
           daily_da_allowance?: number | null
@@ -6174,45 +6121,6 @@ export type Database = {
           },
         ]
       }
-      profile_attachments: {
-        Row: {
-          attached_by: string
-          created_at: string
-          description: string | null
-          file_name: string
-          file_size: number | null
-          file_type: string | null
-          file_url: string
-          id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          attached_by: string
-          created_at?: string
-          description?: string | null
-          file_name: string
-          file_size?: number | null
-          file_type?: string | null
-          file_url: string
-          id?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          attached_by?: string
-          created_at?: string
-          description?: string | null
-          file_name?: string
-          file_size?: number | null
-          file_type?: string | null
-          file_url?: string
-          id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       profile_object_permissions: {
         Row: {
           can_create: boolean | null
@@ -7754,33 +7662,6 @@ export type Database = {
           },
         ]
       }
-      social_post_attachments: {
-        Row: {
-          created_at: string
-          file_name: string | null
-          file_type: string | null
-          file_url: string
-          id: string
-          post_id: string
-        }
-        Insert: {
-          created_at?: string
-          file_name?: string | null
-          file_type?: string | null
-          file_url: string
-          id?: string
-          post_id: string
-        }
-        Update: {
-          created_at?: string
-          file_name?: string | null
-          file_type?: string | null
-          file_url?: string
-          id?: string
-          post_id?: string
-        }
-        Relationships: []
-      }
       social_posts: {
         Row: {
           content: string
@@ -7827,30 +7708,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      social_reactions: {
-        Row: {
-          created_at: string
-          emoji: string
-          id: string
-          post_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          emoji: string
-          id?: string
-          post_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          emoji?: string
-          id?: string
-          post_id?: string
-          user_id?: string
-        }
-        Relationships: []
       }
       stock: {
         Row: {
@@ -9796,43 +9653,6 @@ export type Database = {
           total_attempts: number
         }[]
       }
-      get_product_revenue_performance: {
-        Args: { end_date?: string; start_date?: string; user_full_name: string }
-        Returns: {
-          full_name: string
-          product_name: string
-          quantity_sold: number
-          revenue: number
-          unit: string
-        }[]
-      }
-      get_productivity_summary:
-        | {
-            Args: { user_full_name: string }
-            Returns: {
-              full_name: string
-              planned_date: string
-              productive_visits: number
-              productivity_percentage: number
-              total_visits: number
-              unproductive_visits: number
-            }[]
-          }
-        | {
-            Args: {
-              end_date?: string
-              start_date?: string
-              user_full_name: string
-            }
-            Returns: {
-              full_name: string
-              planned_date: string
-              productive_visits: number
-              productivity_percentage: number
-              total_visits: number
-              unproductive_visits: number
-            }[]
-          }
       get_public_vendors: {
         Args: never
         Returns: {
