@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Building2, MapPin, FileText, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CompanyData {
   name: string;
@@ -27,16 +28,12 @@ export const TallyCompanyInfo = () => {
     setError(null);
     
     try {
-      const response = await fetch("http://localhost:3001/api/tally/company", {
-        method: "GET",
-        headers: { "Content-Type": "application/json" }
-      });
+      // Call the Supabase edge function that proxies to Tally via ngrok
+      const { data, error: fnError } = await supabase.functions.invoke('tally-proxy');
       
-      if (!response.ok) {
-        throw new Error("Failed to fetch from proxy");
+      if (fnError) {
+        throw new Error(fnError.message);
       }
-      
-      const data = await response.json();
       
       if (data.success && data.companies && data.companies.length > 0) {
         setCompany(data.companies[0]);
@@ -45,7 +42,7 @@ export const TallyCompanyInfo = () => {
         throw new Error(data.error || "No company data found");
       }
     } catch (err) {
-      console.log("Tally proxy not available, using demo data");
+      console.log("Tally connection failed, using demo data:", err);
       setCompany(DEMO_COMPANY);
       setIsConnected(false);
       setError(err instanceof Error ? err.message : "Connection failed");
@@ -140,7 +137,7 @@ export const TallyCompanyInfo = () => {
           
           {!isConnected && error && (
             <p className="text-xs text-muted-foreground mt-3 pl-[72px]">
-              Run <code className="bg-muted px-1.5 py-0.5 rounded text-primary">node tally-proxy.js</code> to connect to Tally Prime
+              Ensure Tally Prime is running and ngrok is active to connect
             </p>
           )}
         </Card>

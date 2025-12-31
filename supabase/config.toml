@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.voice-order-parser]
 verify_jwt = true
+
+[functions.tally-proxy]
+verify_jwt = false
