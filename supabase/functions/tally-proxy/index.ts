@@ -5,14 +5,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Tally XML request to get company info
+// Tally XML request to get company info with all details
 const TALLY_COMPANY_REQUEST = `<?xml version="1.0" encoding="UTF-8"?>
 <ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>List of Companies</ID>
+    <ID>CompanyDetails</ID>
   </HEADER>
   <BODY>
     <DESC>
@@ -21,11 +21,23 @@ const TALLY_COMPANY_REQUEST = `<?xml version="1.0" encoding="UTF-8"?>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
-          <COLLECTION NAME="List of Companies" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+          <COLLECTION NAME="CompanyDetails" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
             <TYPE>Company</TYPE>
             <NATIVEMETHOD>Name</NATIVEMETHOD>
             <NATIVEMETHOD>Address</NATIVEMETHOD>
+            <NATIVEMETHOD>StateName</NATIVEMETHOD>
+            <NATIVEMETHOD>PinCode</NATIVEMETHOD>
+            <NATIVEMETHOD>PhoneNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>MobileNo</NATIVEMETHOD>
+            <NATIVEMETHOD>FaxNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>Email</NATIVEMETHOD>
+            <NATIVEMETHOD>Website</NATIVEMETHOD>
             <NATIVEMETHOD>GSTIN</NATIVEMETHOD>
+            <NATIVEMETHOD>PartyGSTIN</NATIVEMETHOD>
+            <NATIVEMETHOD>GSTRegistrationType</NATIVEMETHOD>
+            <NATIVEMETHOD>PAN</NATIVEMETHOD>
+            <NATIVEMETHOD>CINNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>IncomeTaxNumber</NATIVEMETHOD>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -62,6 +74,7 @@ serve(async (req) => {
 
     const xmlData = await response.text();
     console.log("Received XML response from Tally, length:", xmlData.length);
+    console.log("XML preview:", xmlData.substring(0, 1000));
 
     // Parse the XML to extract company data
     const companies = parseCompanyXml(xmlData);
@@ -71,13 +84,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ 
         success: false, 
         error: "No company data found in Tally response",
-        companies: [] 
+        companies: [],
+        rawXml: xmlData.substring(0, 2000)
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`Found ${companies.length} companies`);
+    console.log(`Found ${companies.length} companies:`, JSON.stringify(companies));
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -99,46 +113,120 @@ serve(async (req) => {
   }
 });
 
-// Simple XML parser to extract company data
-function parseCompanyXml(xml: string): Array<{ name: string; address: string; gstin: string }> {
-  const companies: Array<{ name: string; address: string; gstin: string }> = [];
+interface CompanyInfo {
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  gstin: string;
+  pan: string;
+  state: string;
+  pincode: string;
+}
+
+// Extract value from XML tag
+function extractValue(xml: string, tagName: string): string {
+  const patterns = [
+    new RegExp(`<${tagName}[^>]*>([^<]*)</${tagName}>`, 'i'),
+    new RegExp(`<${tagName}\\.LIST[^>]*>([\\s\\S]*?)</${tagName}\\.LIST>`, 'i'),
+  ];
   
-  // Match COMPANY blocks
+  for (const pattern of patterns) {
+    const match = pattern.exec(xml);
+    if (match && match[1]) {
+      // Clean up the value
+      return match[1]
+        .replace(/&#10;/g, ', ')
+        .replace(/&#13;/g, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+  }
+  return '';
+}
+
+// Simple XML parser to extract company data
+function parseCompanyXml(xml: string): CompanyInfo[] {
+  const companies: CompanyInfo[] = [];
+  
+  // Try to match COMPANY blocks
   const companyRegex = /<COMPANY[^>]*>([\s\S]*?)<\/COMPANY>/gi;
   let match;
   
   while ((match = companyRegex.exec(xml)) !== null) {
-    const companyBlock = match[1];
-    
-    // Extract fields
-    const nameMatch = /<NAME[^>]*>(.*?)<\/NAME>/i.exec(companyBlock);
-    const addressMatch = /<ADDRESS[^>]*>(.*?)<\/ADDRESS>/i.exec(companyBlock);
-    const gstinMatch = /<GSTIN[^>]*>(.*?)<\/GSTIN>/i.exec(companyBlock) || 
-                       /<PARTYGSTIN[^>]*>(.*?)<\/PARTYGSTIN>/i.exec(companyBlock);
-    
-    if (nameMatch) {
-      companies.push({
-        name: nameMatch[1].trim(),
-        address: addressMatch ? addressMatch[1].trim().replace(/&#10;/g, ', ') : '',
-        gstin: gstinMatch ? gstinMatch[1].trim() : ''
-      });
+    const block = match[1];
+    const company = extractCompanyFromBlock(block);
+    if (company.name) {
+      companies.push(company);
     }
   }
   
-  // If no COMPANY blocks found, try alternate patterns
+  // If no COMPANY blocks, try COMPANYDETAILS or root level
   if (companies.length === 0) {
-    const nameMatch = /<NAME[^>]*>(.*?)<\/NAME>/gi.exec(xml);
-    const addressMatch = /<ADDRESS[^>]*>([\s\S]*?)<\/ADDRESS>/gi.exec(xml);
-    const gstinMatch = /<GSTIN[^>]*>(.*?)<\/GSTIN>/gi.exec(xml);
-    
-    if (nameMatch) {
-      companies.push({
-        name: nameMatch[1].trim(),
-        address: addressMatch ? addressMatch[1].trim().replace(/&#10;/g, ', ').replace(/<[^>]+>/g, ', ') : '',
-        gstin: gstinMatch ? gstinMatch[1].trim() : ''
-      });
+    const detailsRegex = /<COMPANYDETAILS[^>]*>([\s\S]*?)<\/COMPANYDETAILS>/gi;
+    while ((match = detailsRegex.exec(xml)) !== null) {
+      const block = match[1];
+      const company = extractCompanyFromBlock(block);
+      if (company.name) {
+        companies.push(company);
+      }
+    }
+  }
+  
+  // Last resort: extract from root
+  if (companies.length === 0) {
+    const company = extractCompanyFromBlock(xml);
+    if (company.name) {
+      companies.push(company);
     }
   }
   
   return companies;
+}
+
+function extractCompanyFromBlock(block: string): CompanyInfo {
+  // Extract address - handle multi-line ADDRESS.LIST
+  let address = '';
+  const addressListMatch = /<ADDRESS\.LIST[^>]*>([\s\S]*?)<\/ADDRESS\.LIST>/i.exec(block);
+  if (addressListMatch) {
+    const addressLines: string[] = [];
+    const lineRegex = /<ADDRESS[^.][^>]*>([^<]*)<\/ADDRESS>/gi;
+    let lineMatch;
+    while ((lineMatch = lineRegex.exec(addressListMatch[1])) !== null) {
+      if (lineMatch[1].trim()) {
+        addressLines.push(lineMatch[1].trim());
+      }
+    }
+    address = addressLines.join(', ');
+  }
+  
+  if (!address) {
+    address = extractValue(block, 'ADDRESS');
+  }
+
+  // Extract phone - try multiple fields
+  let phone = extractValue(block, 'PHONENUMBER') || 
+              extractValue(block, 'MOBILENO') || 
+              extractValue(block, 'MOBILE') ||
+              extractValue(block, 'PHONE');
+
+  // Extract state and pincode
+  const state = extractValue(block, 'STATENAME') || extractValue(block, 'STATE');
+  const pincode = extractValue(block, 'PINCODE');
+  
+  // Build full address
+  const addressParts = [address, state, pincode].filter(Boolean);
+  const fullAddress = addressParts.join(', ');
+
+  return {
+    name: extractValue(block, 'NAME'),
+    address: fullAddress,
+    phone: phone,
+    email: extractValue(block, 'EMAIL'),
+    gstin: extractValue(block, 'GSTIN') || extractValue(block, 'PARTYGSTIN'),
+    pan: extractValue(block, 'PAN') || extractValue(block, 'INCOMETAXNUMBER'),
+    state: state,
+    pincode: pincode,
+  };
 }
