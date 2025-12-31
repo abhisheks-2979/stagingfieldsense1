@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
 import { WebsiteHeader, WebsiteFooter } from "@/components/website";
+import { TallyCompanyInfo } from "@/components/website/TallyCompanyInfo";
 
 const pricingTiers = [
   {
@@ -92,6 +93,9 @@ export const PricingPage = () => {
   return (
     <div className="min-h-screen bg-background">
       <WebsiteHeader />
+      
+      {/* Tally Company Data */}
+      <TallyCompanyInfo />
       
       {/* Hero Section */}
       <section className="pt-32 pb-16 px-4">
