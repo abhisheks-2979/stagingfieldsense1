@@ -11,14 +11,16 @@ interface CompanyData {
   gstin: string;
 }
 
-const DEMO_COMPANY: CompanyData = {
-  name: "Demo Company Pvt Ltd",
-  address: "123 Business Park, Mumbai, Maharashtra 400001",
-  gstin: "27AABCD1234E1Z5"
-};
+const DEMO_COMPANIES: CompanyData[] = [
+  {
+    name: "Demo Company Pvt Ltd",
+    address: "123 Business Park, Mumbai, Maharashtra 400001",
+    gstin: "27AABCD1234E1Z5"
+  }
+];
 
 export const TallyCompanyInfo = () => {
-  const [company, setCompany] = useState<CompanyData | null>(null);
+  const [companies, setCompanies] = useState<CompanyData[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,14 +38,14 @@ export const TallyCompanyInfo = () => {
       }
       
       if (data.success && data.companies && data.companies.length > 0) {
-        setCompany(data.companies[0]);
+        setCompanies(data.companies);
         setIsConnected(true);
       } else {
         throw new Error(data.error || "No company data found");
       }
     } catch (err) {
       console.log("Tally connection failed, using demo data:", err);
-      setCompany(DEMO_COMPANY);
+      setCompanies(DEMO_COMPANIES);
       setIsConnected(false);
       setError(err instanceof Error ? err.message : "Connection failed");
     } finally {
@@ -73,74 +75,85 @@ export const TallyCompanyInfo = () => {
     );
   }
 
-  if (!company) return null;
+  if (companies.length === 0) return null;
 
   return (
     <section className="pt-28 pb-4 px-4">
-      <div className="container mx-auto max-w-4xl">
-        <Card className="p-6 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            {/* Company Icon */}
-            <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-7 h-7 text-primary" />
-            </div>
-            
-            {/* Company Details */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-lg font-bold text-foreground truncate">
-                  {company.name}
-                </h3>
-                <Badge 
-                  variant={isConnected ? "default" : "secondary"} 
-                  className="text-xs flex-shrink-0"
-                >
-                  {isConnected ? (
-                    <>
-                      <Wifi className="w-3 h-3 mr-1" />
-                      Tally Connected
-                    </>
-                  ) : (
-                    <>
-                      <WifiOff className="w-3 h-3 mr-1" />
-                      Demo Mode
-                    </>
-                  )}
-                </Badge>
+      <div className="container mx-auto max-w-4xl space-y-3">
+        {/* Header with connection status and refresh */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Badge 
+              variant={isConnected ? "default" : "secondary"} 
+              className="text-xs"
+            >
+              {isConnected ? (
+                <>
+                  <Wifi className="w-3 h-3 mr-1" />
+                  Tally Connected ({companies.length} {companies.length === 1 ? 'company' : 'companies'})
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3 h-3 mr-1" />
+                  Demo Mode
+                </>
+              )}
+            </Badge>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchCompanyData}
+            className="h-8"
+            title="Refresh company data"
+          >
+            <RefreshCw className={`w-4 h-4 mr-1.5 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+
+        {/* Company Cards */}
+        {companies.map((company, index) => (
+          <Card 
+            key={index} 
+            className="p-5 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20"
+          >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              {/* Company Icon */}
+              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-6 h-6 text-primary" />
               </div>
               
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span className="truncate">{company.address}</span>
-                </span>
-                {company.gstin && (
-                  <span className="flex items-center gap-1.5">
-                    <FileText className="w-4 h-4 text-primary flex-shrink-0" />
-                    <span className="font-mono">{company.gstin}</span>
-                  </span>
-                )}
+              {/* Company Details */}
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-foreground truncate mb-1">
+                  {company.name}
+                </h3>
+                
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 text-sm text-muted-foreground">
+                  {company.address && (
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                      <span className="truncate">{company.address}</span>
+                    </span>
+                  )}
+                  {company.gstin && (
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                      <span className="font-mono text-xs">{company.gstin}</span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            
-            {/* Refresh Button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={fetchCompanyData}
-              className="flex-shrink-0"
-              title="Refresh company data"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-            </Button>
-          </div>
-          
-          {!isConnected && error && (
-            <p className="text-xs text-muted-foreground mt-3 pl-[72px]">
-              Ensure Tally Prime is running and ngrok is active to connect
-            </p>
-          )}
-        </Card>
+          </Card>
+        ))}
+        
+        {!isConnected && error && (
+          <p className="text-xs text-muted-foreground text-center">
+            Ensure Tally Prime is running and ngrok is active to connect
+          </p>
+        )}
       </div>
     </section>
   );
