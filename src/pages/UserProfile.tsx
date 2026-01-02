@@ -98,7 +98,7 @@ const UserProfile = () => {
         address: employeeData.address || '',
         education: employeeData.education || '',
         emergency_contact_number: employeeData.emergency_contact_number || '',
-        band: employeeData.band?.toString() || ''
+        band: (employeeData as any).band?.toString() || ''
       });
     }
   };

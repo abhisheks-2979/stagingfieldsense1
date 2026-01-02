@@ -67,7 +67,7 @@ export function ProfileAttachments() {
     if (!user) return;
     
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('profile_attachments')
       .select(`
         *,
@@ -128,7 +128,7 @@ export function ProfileAttachments() {
       }
 
       // Create attachment record
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('profile_attachments')
         .insert({
           user_id: user.id,
@@ -169,7 +169,7 @@ export function ProfileAttachments() {
 
       if (success) {
         // Delete from original table
-        await supabase
+        await (supabase as any)
           .from('profile_attachments')
           .delete()
           .eq('id', attachment.id);

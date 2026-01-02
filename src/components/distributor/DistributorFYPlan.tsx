@@ -301,7 +301,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
       .eq('business_plan_id', selectedPlan.id);
 
     // Load monthly targets
-    const { data: monthData } = await supabase
+    const { data: monthData } = await (supabase as any)
       .from('distributor_business_plan_months')
       .select('*')
       .eq('business_plan_id', selectedPlan.id);
@@ -347,7 +347,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
       revenueTarget: 0,
       equalDivide: true,
       retailers: cat.retailers.map(r => {
-        const existing = retailerData?.find(rd => rd.retailer_id === r.id);
+        const existing = (retailerData as any[])?.find(rd => rd.retailer_id === r.id);
         return {
           retailerId: r.id,
           retailerName: r.name,
@@ -376,7 +376,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
     // Initialize monthly targets - use plan's main targets if no existing data
     const hasExistingMonthData = monthData && monthData.length > 0;
     const newMonthTargets: MonthTarget[] = FY_MONTHS.map(m => {
-      const existing = monthData?.find(md => md.month_number === m.number);
+      const existing = (monthData as any[])?.find(md => md.month_number === m.number);
       return {
         monthNumber: m.number,
         monthName: m.name,
@@ -481,7 +481,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
       // Delete related data first
       await supabase.from('distributor_business_plan_products').delete().eq('business_plan_id', selectedPlan.id);
       await supabase.from('distributor_business_plan_retailers').delete().eq('business_plan_id', selectedPlan.id);
-      await supabase.from('distributor_business_plan_months').delete().eq('business_plan_id', selectedPlan.id);
+      await (supabase as any).from('distributor_business_plan_months').delete().eq('business_plan_id', selectedPlan.id);
       
       const { error } = await supabase
         .from('distributor_business_plans')
@@ -791,7 +791,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
     
     try {
       // Delete existing
-      await supabase
+      await (supabase as any)
         .from('distributor_business_plan_months')
         .delete()
         .eq('business_plan_id', selectedPlan.id);
@@ -806,7 +806,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
       }));
 
       if (monthsToInsert.length > 0) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('distributor_business_plan_months')
           .insert(monthsToInsert);
         if (error) throw error;
