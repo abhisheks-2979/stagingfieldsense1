@@ -144,6 +144,35 @@ serve(async (req) => {
 
     console.log('Auth user created:', authUser.user.id)
 
+    // Create profile record first
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .insert({
+        id: authUser.user.id,
+        username: username,
+        full_name: full_name,
+        phone_number: phone_number || null,
+        recovery_email: recovery_email || null,
+        hint_question: hint_question || null,
+        hint_answer: hint_answer || null,
+        user_status: 'active'
+      })
+
+    if (profileError) {
+      console.error('Profile creation error:', profileError)
+      // Clean up auth user if profile creation fails
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to create user profile', 
+          details: profileError.message 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    console.log('Profile record created successfully')
+
     // Create employee record
     const { error: employeeError } = await supabaseAdmin
       .from('employees')
@@ -164,7 +193,8 @@ serve(async (req) => {
 
     if (employeeError) {
       console.error('Employee creation error:', employeeError)
-      // Clean up auth user if employee creation fails
+      // Clean up profile and auth user if employee creation fails
+      await supabaseAdmin.from('profiles').delete().eq('id', authUser.user.id)
       await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
       return new Response(
         JSON.stringify({ 
