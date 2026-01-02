@@ -1916,6 +1916,44 @@ export type Database = {
           },
         ]
       }
+      distributor_business_plan_months: {
+        Row: {
+          business_plan_id: string
+          created_at: string
+          id: string
+          month_name: string
+          month_number: number
+          quantity_target: number | null
+          target_revenue: number | null
+        }
+        Insert: {
+          business_plan_id: string
+          created_at?: string
+          id?: string
+          month_name: string
+          month_number: number
+          quantity_target?: number | null
+          target_revenue?: number | null
+        }
+        Update: {
+          business_plan_id?: string
+          created_at?: string
+          id?: string
+          month_name?: string
+          month_number?: number
+          quantity_target?: number | null
+          target_revenue?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distributor_business_plan_months_business_plan_id_fkey"
+            columns: ["business_plan_id"]
+            isOneToOne: false
+            referencedRelation: "distributor_business_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       distributor_business_plan_products: {
         Row: {
           business_plan_id: string
@@ -2002,6 +2040,8 @@ export type Database = {
           distributor_id: string
           id: string
           notes: string | null
+          quantity_target: number | null
+          quantity_unit: string | null
           revenue_target: number | null
           territory_target: string | null
           updated_at: string
@@ -2013,6 +2053,8 @@ export type Database = {
           distributor_id: string
           id?: string
           notes?: string | null
+          quantity_target?: number | null
+          quantity_unit?: string | null
           revenue_target?: number | null
           territory_target?: string | null
           updated_at?: string
@@ -2024,6 +2066,8 @@ export type Database = {
           distributor_id?: string
           id?: string
           notes?: string | null
+          quantity_target?: number | null
+          quantity_unit?: string | null
           revenue_target?: number | null
           territory_target?: string | null
           updated_at?: string
@@ -3064,6 +3108,7 @@ export type Database = {
           aadhar_document_url: string | null
           address: string | null
           alternate_email: string | null
+          band: string | null
           certifications: Json | null
           created_at: string
           daily_da_allowance: number | null
@@ -3086,6 +3131,7 @@ export type Database = {
           aadhar_document_url?: string | null
           address?: string | null
           alternate_email?: string | null
+          band?: string | null
           certifications?: Json | null
           created_at?: string
           daily_da_allowance?: number | null
@@ -3108,6 +3154,7 @@ export type Database = {
           aadhar_document_url?: string | null
           address?: string | null
           alternate_email?: string | null
+          band?: string | null
           certifications?: Json | null
           created_at?: string
           daily_da_allowance?: number | null
@@ -6121,6 +6168,42 @@ export type Database = {
           },
         ]
       }
+      profile_attachments: {
+        Row: {
+          category: string | null
+          created_at: string
+          file_name: string
+          file_size: number | null
+          file_type: string | null
+          file_url: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          file_name: string
+          file_size?: number | null
+          file_type?: string | null
+          file_url: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          file_name?: string
+          file_size?: number | null
+          file_type?: string | null
+          file_url?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profile_object_permissions: {
         Row: {
           can_create: boolean | null
@@ -7662,6 +7745,33 @@ export type Database = {
           },
         ]
       }
+      social_post_attachments: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          file_type: string | null
+          file_url: string
+          id: string
+          post_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url: string
+          id?: string
+          post_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string
+          id?: string
+          post_id?: string
+        }
+        Relationships: []
+      }
       social_posts: {
         Row: {
           content: string
@@ -7708,6 +7818,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      social_reactions: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string
+          reaction_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id: string
+          reaction_type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string
+          reaction_type?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       stock: {
         Row: {
@@ -9651,6 +9785,27 @@ export type Database = {
           is_locked: boolean
           last_attempt: string
           total_attempts: number
+        }[]
+      }
+      get_product_revenue_performance: {
+        Args: { p_end_date?: string; p_limit?: number; p_start_date?: string }
+        Returns: {
+          order_count: number
+          product_id: string
+          product_name: string
+          total_quantity: number
+          total_revenue: number
+        }[]
+      }
+      get_productivity_summary: {
+        Args: { p_end_date?: string; p_start_date?: string; p_user_id?: string }
+        Returns: {
+          full_name: string
+          productive_visits: number
+          total_orders: number
+          total_revenue: number
+          total_visits: number
+          user_id: string
         }[]
       }
       get_public_vendors: {

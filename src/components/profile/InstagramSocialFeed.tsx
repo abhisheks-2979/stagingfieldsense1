@@ -167,7 +167,7 @@ export function InstagramSocialFeed() {
             .single();
 
           // Fetch reactions for this post
-          const { data: reactionsData } = await supabase
+          const { data: reactionsData } = await (supabase as any)
             .from("social_reactions")
             .select("emoji, user_id")
             .eq("post_id", post.id);
@@ -312,7 +312,7 @@ export function InstagramSocialFeed() {
           .upload(fileName, file);
 
         if (!uploadError && uploadData) {
-          await supabase.from("social_post_attachments").insert({
+          await (supabase as any).from("social_post_attachments").insert({
             post_id: postData.id,
             file_url: uploadData.path,
             file_type: file.type,
@@ -331,7 +331,7 @@ export function InstagramSocialFeed() {
           .upload(fileName, file);
 
         if (!uploadError && uploadData) {
-          await supabase.from("social_post_attachments").insert({
+          await (supabase as any).from("social_post_attachments").insert({
             post_id: postData.id,
             file_url: uploadData.path,
             file_type: file.type,
@@ -387,14 +387,14 @@ export function InstagramSocialFeed() {
       const hasReacted = post.reactions[emoji]?.has_reacted;
       
       if (hasReacted) {
-        await supabase
+        await (supabase as any)
           .from("social_reactions")
           .delete()
           .eq("post_id", postId)
           .eq("user_id", user.id)
           .eq("emoji", emoji);
       } else {
-        await supabase.from("social_reactions").insert({
+        await (supabase as any).from("social_reactions").insert({
           post_id: postId,
           user_id: user.id,
           emoji,

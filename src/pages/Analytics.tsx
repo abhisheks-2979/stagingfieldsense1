@@ -444,7 +444,7 @@ const Analytics = () => {
     setProductivityLoading(true);
     try {
       // Call the RPC function with the selected user's full_name and date range
-      const { data, error } = await supabase.rpc('get_productivity_summary', {
+      const { data, error } = await (supabase as any).rpc('get_productivity_summary', {
         user_full_name: productivityUser,
         start_date: format(productivityDateRange.from, 'yyyy-MM-dd'),
         end_date: format(productivityDateRange.to, 'yyyy-MM-dd')
@@ -457,7 +457,7 @@ const Analytics = () => {
         return;
       }
 
-      setProductivityData(data || []);
+      setProductivityData(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error in productivity report:', error);
       setProductivityData([]);
@@ -481,7 +481,7 @@ const Analytics = () => {
     
     setProductRevenueLoading(true);
     try {
-      const { data, error } = await supabase.rpc('get_product_revenue_performance', {
+      const { data, error } = await (supabase as any).rpc('get_product_revenue_performance', {
         user_full_name: productRevenueUser,
         start_date: format(productRevenueDateRange.from, 'yyyy-MM-dd'),
         end_date: format(productRevenueDateRange.to, 'yyyy-MM-dd')
@@ -495,7 +495,8 @@ const Analytics = () => {
       }
 
       // Sort by revenue in descending order
-      const sortedData = (data || []).sort((a: any, b: any) => (b.revenue || 0) - (a.revenue || 0));
+      const dataArray = Array.isArray(data) ? data : [];
+      const sortedData = dataArray.sort((a: any, b: any) => (b.revenue || 0) - (a.revenue || 0));
       setProductRevenueData(sortedData);
     } catch (error) {
       console.error('Error in product revenue report:', error);
