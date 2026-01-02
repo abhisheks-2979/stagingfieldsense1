@@ -27,6 +27,8 @@ serve(async (req) => {
 
     // Verify admin role
     const authHeader = req.headers.get('Authorization')
+    console.log('Auth header present:', !!authHeader)
+    
     if (!authHeader) {
       console.error('No authorization header provided')
       return new Response(
