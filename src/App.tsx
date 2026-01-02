@@ -106,6 +106,7 @@ import PriceBookAdmin from "./pages/admin/PriceBookAdmin";
 import PriceBookDetail from "./pages/admin/PriceBookDetail";
 import RecycleBin from "./pages/RecycleBin";
 import RecycleBinAdmin from "./pages/admin/RecycleBinAdmin";
+import TenantManagement from "./pages/admin/TenantManagement";
 import MyTargets from "./pages/MyTargets";
 import TeamTargets from "./pages/TeamTargets";
 import PendingPaymentsAll from "./pages/PendingPaymentsAll";
@@ -350,6 +351,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/employee-360" element={<ProtectedRoute><Employee360 /></ProtectedRoute>} />
         <Route path="/recycle-bin" element={<ProtectedRoute><RecycleBin /></ProtectedRoute>} />
         <Route path="/admin/recycle-bin" element={<ProtectedRoute><RecycleBinAdmin /></ProtectedRoute>} />
+        <Route path="/admin/tenants" element={<ProtectedRoute><TenantManagement /></ProtectedRoute>} />
         <Route path="/distributor-master" element={<ProtectedRoute><DistributorMaster /></ProtectedRoute>} />
         <Route path="/add-distributor" element={<ProtectedRoute><AddDistributor /></ProtectedRoute>} />
         <Route path="/distributor/:id" element={<ProtectedRoute><DistributorDetail /></ProtectedRoute>} />
