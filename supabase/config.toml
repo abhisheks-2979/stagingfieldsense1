@@ -1,10 +1,10 @@
 project_id = "aoxdosjkwqyuvccuwhzc"
 
 [functions.admin-create-user]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-get-users]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-recommendations]
 verify_jwt = true
