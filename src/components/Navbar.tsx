@@ -92,6 +92,7 @@ export const Navbar = memo(() => {
   // Admin-only navigation items
   const adminNavigationItems = [
     { icon: Shield, label: t('nav.adminPanel'), href: "/admin-controls", color: "from-emerald-500 to-emerald-600" },
+    { icon: Building2, label: "Tenants", href: "/admin/tenants", color: "from-violet-500 to-violet-600" },
   ];
 
   // Get user display name and initials
