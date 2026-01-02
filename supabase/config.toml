@@ -1,4 +1,10 @@
-project_id = "etabpbfokzhhfuybeieu"
+project_id = "aoxdosjkwqyuvccuwhzc"
+
+[functions.admin-create-user]
+verify_jwt = true
+
+[functions.admin-get-users]
+verify_jwt = true
 
 [functions.generate-recommendations]
 verify_jwt = true
