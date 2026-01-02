@@ -10123,6 +10123,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      user_belongs_to_tenant: {
+        Args: { _tenant_id: string; _user_id: string }
+        Returns: boolean
+      }
       validate_invitation_token: {
         Args: { _token: string }
         Returns: {

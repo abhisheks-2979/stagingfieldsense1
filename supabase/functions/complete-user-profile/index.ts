@@ -177,11 +177,11 @@ serve(async (req) => {
       }
     )
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error completing profile:', error)
     return new Response(
       JSON.stringify({ 
-        error: error.message || 'Failed to complete profile' 
+        error: error instanceof Error ? error.message : 'Failed to complete profile' 
       }),
       { 
         status: 500, 

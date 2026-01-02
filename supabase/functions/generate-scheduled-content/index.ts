@@ -15,6 +15,20 @@ interface TemplateSubscription {
   custom_settings: any;
 }
 
+interface ContentResult {
+  text: string;
+  image_url?: string;
+  metadata: Record<string, any>;
+}
+
+// Type definitions for DB records
+type Visit = { id: string; status: string; retailers?: { name: string }; [key: string]: any };
+type Order = { id: string; status: string; total_amount: number; order_items?: any[]; visit_id?: string; retailers?: { name: string }; [key: string]: any };
+type Expense = { amount: number; [key: string]: any };
+type Point = { points: number; [key: string]: any };
+type Retailer = { id: string; name: string; pending_amount?: number; beat_name?: string; category?: string; [key: string]: any };
+type Product = { id: string; is_focused?: boolean; [key: string]: any };
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -116,7 +130,7 @@ Deno.serve(async (req) => {
           .insert({
             user_id: subscription.user_id,
             content: content.text,
-            image_url: content.image_url,
+            image_url: (content as any).image_url || null,
             is_automated: true,
             template_id: subscription.template_id,
             post_metadata: content.metadata,
@@ -136,10 +150,11 @@ Deno.serve(async (req) => {
         await logExecution(supabase, subscription, 'success', null, post.id);
         results.push({ userId: subscription.user_id, status: 'success', postId: post.id });
 
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(`Error processing subscription ${subscription.id}:`, error);
-        await logExecution(supabase, subscription, 'failed', error.message);
-        results.push({ userId: subscription.user_id, status: 'failed', error: error.message });
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        await logExecution(supabase, subscription, 'failed', errorMsg);
+        results.push({ userId: subscription.user_id, status: 'failed', error: errorMsg });
       }
     }
 
@@ -152,10 +167,10 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in generate-scheduled-content:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -203,7 +218,7 @@ async function handlePostRegeneration(supabase: any, postId: string) {
       .from('social_posts')
       .update({
         content: content.text,
-        image_url: content.image_url,
+        image_url: (content as any).image_url || null,
         post_metadata: content.metadata,
         updated_at: new Date().toISOString()
       })
