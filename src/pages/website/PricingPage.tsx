@@ -94,7 +94,12 @@ export const PricingPage = () => {
     <div className="min-h-screen bg-background">
       <WebsiteHeader />
       
-      {/* Tally Company Data */}
+      {/* Tally Integration Test */}
+      <section className="pt-24 pb-4 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <h2 className="text-lg font-semibold text-muted-foreground text-center">Tally Integration</h2>
+        </div>
+      </section>
       <TallyCompanyInfo />
       
       {/* Hero Section */}
