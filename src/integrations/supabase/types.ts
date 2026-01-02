@@ -10068,6 +10068,7 @@ export type Database = {
       }
       hash_hint_answer: { Args: { answer: string }; Returns: string }
       is_account_locked: { Args: { user_email: string }; Returns: boolean }
+      is_any_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
       is_manager: { Args: { user_id_param: string }; Returns: boolean }
       is_tenant_admin: { Args: { _user_id?: string }; Returns: boolean }
       is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
