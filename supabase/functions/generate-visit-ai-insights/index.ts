@@ -124,7 +124,7 @@ serve(async (req) => {
       })),
       notPurchasedProducts: notPurchasedProducts.slice(0, 10).map(p => ({
         name: p.name,
-        category: p.categories?.name,
+        category: (p.categories as any)?.name,
       })),
       similarRetailerProducts: Array.from(
         new Set(

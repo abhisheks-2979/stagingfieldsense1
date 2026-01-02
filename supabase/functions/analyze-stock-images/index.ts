@@ -102,7 +102,7 @@ IMPORTANT RULES:
     }
 
     // Log the images being sent for debugging
-    console.log('Reference SKU images:', productSkuImages.map(p => ({ name: p.name, url: p.imageUrl })));
+    console.log('Reference SKU images:', productSkuImages.map((p: { name: string; imageUrl: string }) => ({ name: p.name, url: p.imageUrl })));
     console.log('Shelf images to analyze:', images);
     
     console.log('Calling Lovable AI for vision analysis with gemini-2.5-pro');

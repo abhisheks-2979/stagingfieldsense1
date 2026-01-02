@@ -20,7 +20,7 @@ interface FaceMatchResponse {
 
 async function fetchImageAsBase64FromSupabase(
   url: string,
-  supabaseClient: ReturnType<typeof createClient>
+  supabaseClient: any
 ): Promise<string | null> {
   try {
     console.log(`Fetching image (smart) from: ${url}`);
