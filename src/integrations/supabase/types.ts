@@ -10070,6 +10070,10 @@ export type Database = {
       is_account_locked: { Args: { user_email: string }; Returns: boolean }
       is_manager: { Args: { user_id_param: string }; Returns: boolean }
       is_tenant_admin: { Args: { _user_id?: string }; Returns: boolean }
+      is_tenant_admin_or_owner: {
+        Args: { p_tenant_id: string; p_user_id: string }
+        Returns: boolean
+      }
       is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
       list_team_members: {
         Args: never
