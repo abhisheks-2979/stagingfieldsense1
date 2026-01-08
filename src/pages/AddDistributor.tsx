@@ -83,8 +83,12 @@ export default function AddDistributor() {
 
     setLoading(true);
     try {
+      // Get current user ID for created_by
+      const { data: { user } } = await supabase.auth.getUser();
+      
       const insertData: any = {
         name: formData.name.trim(),
+        created_by: user?.id,
         contact_person: formData.contact_person.trim(),
         phone: formData.phone.trim(),
         email: formData.email.trim() || null,

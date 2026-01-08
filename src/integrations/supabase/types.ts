@@ -2836,6 +2836,7 @@ export type Database = {
           contact_person: string
           coverage_area: string | null
           created_at: string
+          created_by: string | null
           credit_limit: number | null
           distribution_experience_years: number | null
           distribution_level: string | null
@@ -2880,6 +2881,7 @@ export type Database = {
           contact_person: string
           coverage_area?: string | null
           created_at?: string
+          created_by?: string | null
           credit_limit?: number | null
           distribution_experience_years?: number | null
           distribution_level?: string | null
@@ -2924,6 +2926,7 @@ export type Database = {
           contact_person?: string
           coverage_area?: string | null
           created_at?: string
+          created_by?: string | null
           credit_limit?: number | null
           distribution_experience_years?: number | null
           distribution_level?: string | null
