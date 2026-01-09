@@ -127,6 +127,20 @@ const CreateUserForm = () => {
     return data.path;
   };
 
+  // Helper to map common error messages to user-friendly text
+  const getUserFriendlyErrorMessage = (message: string): string => {
+    if (message.includes('email address has already been registered')) {
+      return 'This email is already in use. Please use a different email address.';
+    }
+    if (message.includes('password')) {
+      return 'Password does not meet requirements. Please use a stronger password.';
+    }
+    if (message.includes('Missing required fields')) {
+      return 'Please fill in all required fields (email, password, username, full name).';
+    }
+    return message;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -139,12 +153,28 @@ const CreateUserForm = () => {
 
       if (error) {
         console.error('Edge function error:', error);
-        throw new Error(error.message || 'Failed to create user');
+        
+        // Try to extract detailed error from context body
+        let errorMessage = 'Failed to create user';
+        if (error.context?.body) {
+          try {
+            const errorBody = typeof error.context.body === 'string' 
+              ? JSON.parse(error.context.body) 
+              : error.context.body;
+            errorMessage = errorBody.details || errorBody.error || error.message || errorMessage;
+          } catch (parseError) {
+            errorMessage = error.message || errorMessage;
+          }
+        } else {
+          errorMessage = error.message || errorMessage;
+        }
+        throw new Error(getUserFriendlyErrorMessage(errorMessage));
       }
 
       if (data?.error) {
         console.error('Server error:', data.error, data.details);
-        throw new Error(data.details || data.error || 'Failed to create user');
+        const errorMessage = data.details || data.error || 'Failed to create user';
+        throw new Error(getUserFriendlyErrorMessage(errorMessage));
       }
 
       if (!data?.user?.id) {
