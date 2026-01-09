@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,21 +57,10 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get all users from auth with admin privileges
-    const { data: { users: authUsers }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
-    
-    if (authError) {
-      console.error('Error fetching auth users:', authError)
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch auth users' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Get profiles data
+    // Get profiles data first (this is more reliable than auth.admin.listUsers)
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, full_name, phone_number, recovery_email, created_at')
+      .select('id, username, full_name, phone_number, recovery_email, created_at, tenant_id')
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError)
@@ -90,27 +79,57 @@ Deno.serve(async (req) => {
       console.error('Error fetching user roles:', rolesError)
     }
 
-    // Combine all data
-    const usersWithDetails = authUsers.map(authUser => {
-      const profile = profiles?.find(p => p.id === authUser.id)
-      const roleData = userRoles?.find(r => r.user_id === authUser.id)
+    // Get tenant users for tenant info
+    const { data: tenantUsers, error: tenantUsersError } = await supabaseAdmin
+      .from('tenant_users')
+      .select('user_id, tenant_id, role, tenants(name)')
+
+    if (tenantUsersError) {
+      console.error('Error fetching tenant users:', tenantUsersError)
+    }
+
+    // Try to get auth users, but don't fail if it errors
+    let authUsers: any[] = []
+    try {
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+        perPage: 1000
+      })
+      
+      if (!authError && authData?.users) {
+        authUsers = authData.users
+        console.log(`Fetched ${authUsers.length} auth users`)
+      } else if (authError) {
+        console.warn('Auth listUsers failed, falling back to profiles only:', authError.message)
+      }
+    } catch (authErr) {
+      console.warn('Auth listUsers exception, falling back to profiles only:', authErr)
+    }
+
+    // Combine all data - use profiles as the base (more reliable)
+    const usersWithDetails = (profiles || []).map(profile => {
+      const authUser = authUsers.find(au => au.id === profile.id)
+      const roleData = userRoles?.find(r => r.user_id === profile.id)
+      const tenantUser = tenantUsers?.find(tu => tu.user_id === profile.id)
       
       return {
-        id: authUser.id,
-        email: authUser.email || 'No email',
-        username: profile?.username || 'N/A',
-        full_name: profile?.full_name || 'N/A',
-        phone_number: profile?.phone_number || 'N/A',
-        recovery_email: profile?.recovery_email || 'N/A',
+        id: profile.id,
+        email: authUser?.email || 'N/A',
+        username: profile.username || 'N/A',
+        full_name: profile.full_name || 'N/A',
+        phone_number: profile.phone_number || 'N/A',
+        recovery_email: profile.recovery_email || 'N/A',
         role: roleData?.role || 'user',
-        assigned_at: roleData?.assigned_at || authUser.created_at,
-        created_at: authUser.created_at,
-        last_sign_in_at: authUser.last_sign_in_at,
-        email_confirmed_at: authUser.email_confirmed_at,
-        confirmed_at: authUser.confirmed_at,
-        phone: authUser.phone,
-        app_metadata: authUser.app_metadata,
-        user_metadata: authUser.user_metadata
+        assigned_at: roleData?.assigned_at || profile.created_at,
+        created_at: authUser?.created_at || profile.created_at,
+        last_sign_in_at: authUser?.last_sign_in_at || null,
+        email_confirmed_at: authUser?.email_confirmed_at || null,
+        confirmed_at: authUser?.confirmed_at || null,
+        phone: authUser?.phone || null,
+        app_metadata: authUser?.app_metadata || {},
+        user_metadata: authUser?.user_metadata || {},
+        tenant_id: profile.tenant_id || tenantUser?.tenant_id || null,
+        tenant_name: (tenantUser?.tenants as any)?.name || 'No Tenant',
+        tenant_role: tenantUser?.role || null
       }
     })
 
@@ -124,7 +143,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Error in admin-get-users function:', error)
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: 'Internal server error', details: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
