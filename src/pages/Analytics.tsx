@@ -67,6 +67,10 @@ const Analytics = () => {
   const [loading, setLoading] = useState(false);
   const [weeklyProgress, setWeeklyProgress] = useState<any[]>([]);
   const [productData, setProductData] = useState<any[]>([]);
+  const [productDateRange, setProductDateRange] = useState<{ from: Date; to: Date }>({
+    from: subDays(new Date(), 30),
+    to: new Date()
+  });
   const [productTrends, setProductTrends] = useState<any[]>([]);
   const [topRetailers, setTopRetailers] = useState<any[]>([]);
   const [bottomRetailers, setBottomRetailers] = useState<any[]>([]);
@@ -732,8 +736,8 @@ const Analytics = () => {
         .from('orders')
         .select('*, order_items(product_name, quantity, total), created_at')
         .eq('user_id', user.id)
-        .gte('created_at', dateRange.from.toISOString())
-        .lte('created_at', dateRange.to.toISOString());
+        .gte('created_at', productDateRange.from.toISOString())
+        .lte('created_at', productDateRange.to.toISOString());
 
       const productMap: any = {};
       const productTrendMap: any = {};
@@ -934,9 +938,12 @@ const Analytics = () => {
 
   useEffect(() => {
     fetchWeeklyProgress();
-    fetchProductData();
     fetchRetailerRankings();
   }, [dateRange]);
+
+  useEffect(() => {
+    fetchProductData();
+  }, [productDateRange]);
 
   useEffect(() => {
     if (kpiData.deliveredRevenue > 0) {
@@ -1492,10 +1499,52 @@ const Analytics = () => {
             <TabsContent value="products" className="space-y-4">
               <Card className="shadow-lg">
                 <CardHeader>
-                  <CardTitle>Product-wise Business Analysis</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {format(dateRange.from, 'MMM dd, yyyy')} - {format(dateRange.to, 'MMM dd, yyyy')}
-                  </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <CardTitle>Product-wise Business Analysis</CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {format(productDateRange.from, 'MMM dd, yyyy')} - {format(productDateRange.to, 'MMM dd, yyyy')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" size="sm" className="justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {format(productDateRange.from, 'MMM dd')}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={productDateRange.from}
+                            onSelect={(date) => date && setProductDateRange(prev => ({ ...prev, from: date }))}
+                            initialFocus
+                            className={cn("p-3 pointer-events-auto")}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <span className="text-muted-foreground">to</span>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" size="sm" className="justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {format(productDateRange.to, 'MMM dd')}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={productDateRange.to}
+                            onSelect={(date) => date && setProductDateRange(prev => ({ ...prev, to: date }))}
+                            initialFocus
+                            disabled={(date) => date < productDateRange.from}
+                            className={cn("p-3 pointer-events-auto")}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
