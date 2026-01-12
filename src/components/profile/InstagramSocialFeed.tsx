@@ -155,13 +155,26 @@ export function InstagramSocialFeed() {
       .from("social_posts")
       .select(`
         *,
-        profiles!social_posts_user_id_fkey(full_name, profile_picture_url),
         social_likes(count),
         social_comments(count),
         social_post_attachments(id, file_url, file_type, file_name)
       `)
       .in("user_id", viewableUserIds)
       .order("created_at", { ascending: false });
+
+    // Fetch profiles for post authors separately
+    const userIdsToFetch = [...new Set(data?.map((p: any) => p.user_id) || [])];
+    const { data: profilesData } = userIdsToFetch.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, full_name, profile_picture_url")
+          .in("id", userIdsToFetch)
+      : { data: [] };
+
+    const profilesMap: Record<string, any> = {};
+    profilesData?.forEach((p: any) => {
+      profilesMap[p.id] = p;
+    });
 
     if (!error && data) {
       const formattedPosts: Post[] = await Promise.all(
@@ -199,8 +212,8 @@ export function InstagramSocialFeed() {
             content: post.content,
             image_url: post.image_url,
             created_at: post.created_at,
-            user_name: post.profiles?.full_name || "Unknown User",
-            user_avatar: post.profiles?.profile_picture_url || null,
+            user_name: profilesMap[post.user_id]?.full_name || "Unknown User",
+            user_avatar: profilesMap[post.user_id]?.profile_picture_url || null,
             likes_count: post.social_likes?.[0]?.count || 0,
             comments_count: post.social_comments?.[0]?.count || 0,
             has_liked: !!likeData,
