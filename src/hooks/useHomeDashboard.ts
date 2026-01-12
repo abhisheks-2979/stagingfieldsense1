@@ -88,9 +88,68 @@ const getDefaultState = (): HomeDashboardData => ({
 export const useHomeDashboard = (userId: string | undefined, selectedDate: Date = new Date()) => {
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
   const isRefreshingRef = useRef(false);
+  const lastSyncRefreshRef = useRef<number>(0);
   
   // Cache key for localStorage persistence
   const CACHE_KEY = `home_dashboard_cache_${userId}`;
+  const ATTENDANCE_LOCK_KEY = `attendance_lock_${userId}`;
+  
+  // ATTENDANCE LOCK: Persist to localStorage so it survives tab switches
+  // This prevents the "Start Your Day" flicker when navigating between tabs
+  const getLockedAttendance = useCallback((): any | null => {
+    if (!userId) return null;
+    try {
+      const locked = localStorage.getItem(ATTENDANCE_LOCK_KEY);
+      if (locked) {
+        const parsed = JSON.parse(locked);
+        // Check if the lock is for today
+        const todayStr = getLocalTodayDate();
+        if (parsed.date === todayStr && parsed.attendance?.check_in_time) {
+          return parsed.attendance;
+        }
+      }
+    } catch (e) {
+      console.error('[useHomeDashboard] Error reading attendance lock:', e);
+    }
+    return null;
+  }, [userId, ATTENDANCE_LOCK_KEY]);
+  
+  const setLockedAttendance = useCallback((attendance: any) => {
+    if (!userId || !attendance?.check_in_time) return;
+    try {
+      const todayStr = getLocalTodayDate();
+      localStorage.setItem(ATTENDANCE_LOCK_KEY, JSON.stringify({
+        date: todayStr,
+        attendance
+      }));
+      console.log('[useHomeDashboard] 🔒 Attendance locked to localStorage');
+    } catch (e) {
+      console.error('[useHomeDashboard] Error saving attendance lock:', e);
+    }
+  }, [userId, ATTENDANCE_LOCK_KEY]);
+  
+  const clearLockedAttendance = useCallback(() => {
+    try {
+      localStorage.removeItem(ATTENDANCE_LOCK_KEY);
+      console.log('[useHomeDashboard] 🔓 Attendance lock cleared');
+    } catch (e) {
+      // Ignore
+    }
+  }, [ATTENDANCE_LOCK_KEY]);
+  
+  // ATTENDANCE LOCK: Use refs for in-memory fast access, backed by localStorage
+  const attendanceLockedRef = useRef(false);
+  const lockedAttendanceRef = useRef<any>(null);
+  
+  // Initialize lock from localStorage on mount
+  useEffect(() => {
+    const locked = getLockedAttendance();
+    if (locked) {
+      attendanceLockedRef.current = true;
+      lockedAttendanceRef.current = locked;
+      console.log('[useHomeDashboard] 🔒 Attendance lock restored from localStorage');
+    }
+  }, [getLockedAttendance]);
   
   // Load initial state from localStorage cache for instant display
   const getInitialState = (): HomeDashboardData => {
@@ -98,11 +157,30 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
     
     if (!userId) return { ...defaultState, isLoading: false };
     
+    // FIRST: Check attendance lock from localStorage (survives tab switches)
+    const lockedAttendance = getLockedAttendance();
+    if (lockedAttendance) {
+      attendanceLockedRef.current = true;
+      lockedAttendanceRef.current = lockedAttendance;
+    }
+    
     try {
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         const parsedCache = JSON.parse(cached);
         console.log('[useHomeDashboard] Loaded from localStorage cache, lastUpdated:', parsedCache.lastUpdated);
+        
+        // Use locked attendance if available (more reliable than cache)
+        if (lockedAttendance) {
+          parsedCache.todayData.attendance = lockedAttendance;
+        } else if (parsedCache.todayData?.attendance?.check_in_time) {
+          // Lock from cache if not already locked
+          attendanceLockedRef.current = true;
+          lockedAttendanceRef.current = parsedCache.todayData.attendance;
+          setLockedAttendance(parsedCache.todayData.attendance);
+          console.log('[useHomeDashboard] 🔒 Attendance locked from initial cache');
+        }
+        
         // CRITICAL: Always show cached data immediately, never block with loading
         return { 
           ...parsedCache, 
@@ -112,6 +190,15 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
       }
     } catch (e) {
       console.error('[useHomeDashboard] Error loading cache:', e);
+    }
+    
+    // If no cache but we have locked attendance, use it
+    if (lockedAttendance) {
+      return { 
+        ...defaultState, 
+        todayData: { ...defaultState.todayData, attendance: lockedAttendance },
+        isLoading: false 
+      };
     }
     
     // If no cache, show loading briefly (will try to load)
@@ -154,10 +241,17 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
     try {
       // STEP 1: Load from offline storage cache immediately (only for today)
       if (isToday) {
+        // ATTENDANCE LOCK CHECK: Skip cache lookup if attendance already locked
+        let todayAttendance = null;
+        if (attendanceLockedRef.current && lockedAttendanceRef.current) {
+          console.log('[useHomeDashboard] 🔒 Using locked attendance - skipping cache lookup');
+          todayAttendance = lockedAttendanceRef.current;
+        }
+        
         const [cachedBeatPlans, cachedVisits, cachedAttendance, cachedRetailers] = await Promise.all([
           offlineStorage.getAll<any>(STORES.BEAT_PLANS),
           offlineStorage.getAll<any>(STORES.VISITS),
-          offlineStorage.getAll<any>(STORES.ATTENDANCE),
+          attendanceLockedRef.current ? Promise.resolve([]) : offlineStorage.getAll<any>(STORES.ATTENDANCE),
           offlineStorage.getAll<any>(STORES.RETAILERS)
         ]);
 
@@ -167,11 +261,21 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
         const todayVisits = cachedVisits.filter(
           (v: any) => v.user_id === userId && v.planned_date === dateStr
         );
-        const todayAttendance = cachedAttendance.find(
-          (a: any) => a.user_id === userId && a.date === dateStr
-        );
-
-        // Always show cached data, even if empty - better than stuck loading
+        
+        // Only look up attendance from cache if not locked
+        if (!attendanceLockedRef.current) {
+          todayAttendance = cachedAttendance.find(
+            (a: any) => a.user_id === userId && a.date === dateStr
+          );
+          
+          // Lock if we found valid attendance
+          if (todayAttendance?.check_in_time) {
+            attendanceLockedRef.current = true;
+            lockedAttendanceRef.current = todayAttendance;
+            setLockedAttendance(todayAttendance);
+            console.log('[useHomeDashboard] 🔒 Attendance locked after cache load');
+          }
+        }
         const completed = todayVisits.filter((v: any) => v.status === 'completed' || v.status === 'productive').length;
         
         updateDashboardState({
@@ -207,7 +311,15 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
         // Fetch data
         const beatPlanRes: any = await supabase.from('beat_plans').select('*').eq('user_id', userId).eq('plan_date', dateStr);
         const visitsRes: any = await supabase.from('visits').select('*').eq('user_id', userId).eq('planned_date', dateStr);
-        const attendanceRes: any = await supabase.from('attendance').select('*').eq('user_id', userId).eq('date', dateStr).maybeSingle();
+        
+        // ATTENDANCE LOCK: Skip Supabase query if attendance already locked
+        let attendanceRes: any = { data: null };
+        if (attendanceLockedRef.current && lockedAttendanceRef.current) {
+          console.log('[useHomeDashboard] 🔒 Using locked attendance - skipping Supabase query');
+          attendanceRes = { data: lockedAttendanceRef.current };
+        } else {
+          attendanceRes = await supabase.from('attendance').select('*').eq('user_id', userId).eq('date', dateStr).maybeSingle();
+        }
         const ordersRes: any = await supabase.from('orders').select('*').eq('user_id', userId).eq('status', 'confirmed')
           .gte('created_at', `${dateStr}T00:00:00.000Z`).lte('created_at', `${dateStr}T23:59:59.999Z`);
         const pointsRes: any = await supabase.from('gamification_points').select('points').eq('user_id', userId)
@@ -221,12 +333,20 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
         const beatPlans = beatPlanRes.data || [];
         const beatPlan = beatPlans.length > 0 ? beatPlans[0] : null;
         const visits = visitsRes.data || [];
-        const attendance = attendanceRes.data;
+        let attendance = attendanceRes.data;
         let orders = ordersRes.data || [];
         const points = pointsRes.data || [];
         const retailers = retailersRes.data || [];
         const newRetailers = newRetailersRes.data || [];
         const leave = leaveRes.data;
+        
+        // Lock attendance if we got valid data from network (and not already locked)
+        if (!attendanceLockedRef.current && attendance?.check_in_time) {
+          attendanceLockedRef.current = true;
+          lockedAttendanceRef.current = attendance;
+          setLockedAttendance(attendance);
+          console.log('[useHomeDashboard] 🔒 Attendance locked after network fetch');
+        }
         
         // CRITICAL: Merge orders from offline sources (snapshot + offline storage) with DB orders
         // This ensures revenue reflects all orders including those placed offline
@@ -519,60 +639,80 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
       }
     });
 
-    setData(prev => ({
-      ...prev,
-      todayData: {
-        ...prev.todayData,
-        beatPlan: beatPlansArray[0] || null,
-        beatName,
-        visits: todayVisits,
-        nextVisit,
-        attendance: todayAttendance,
-        beatProgress: {
-          total: totalPlannedRetailers,
-          completed: productive + unproductive,
-          remaining: notYetVisited,
-          planned: totalPlannedRetailers,
-          productive,
-          unproductive,
-        }
-      },
-      isLoading: false
-    }));
+    setData(prev => {
+      // CRITICAL: Use locked attendance if available, otherwise preserve existing
+      const finalAttendance = attendanceLockedRef.current 
+        ? lockedAttendanceRef.current 
+        : (todayAttendance || prev.todayData.attendance);
+      
+      return {
+        ...prev,
+        todayData: {
+          ...prev.todayData,
+          beatPlan: beatPlansArray[0] || null,
+          beatName,
+          visits: todayVisits,
+          nextVisit,
+          attendance: finalAttendance,
+          beatProgress: {
+            total: totalPlannedRetailers,
+            completed: productive + unproductive,
+            remaining: notYetVisited,
+            planned: totalPlannedRetailers,
+            productive,
+            unproductive,
+          }
+        },
+        isLoading: false
+      };
+    });
   };
+
+  // Reset attendance lock when date changes (midnight rollover)
+  useEffect(() => {
+    const todayStr = getLocalTodayDate();
+    if (dateStr !== todayStr) {
+      // Different day selected - clear lock for this session only
+      attendanceLockedRef.current = false;
+      lockedAttendanceRef.current = null;
+    } else {
+      // Same day - check if we need to clear stale locks from yesterday
+      const locked = getLockedAttendance();
+      if (!locked) {
+        attendanceLockedRef.current = false;
+        lockedAttendanceRef.current = null;
+        clearLockedAttendance();
+      }
+    }
+    console.log('[useHomeDashboard] 🔓 Attendance lock check for date:', dateStr);
+  }, [dateStr, getLockedAttendance, clearLockedAttendance]);
 
   // Initial load
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // Use managed interval for auto-refresh (pauses when app is hidden)
-  // Increased from 30s to 60s to reduce CPU usage
-  useManagedInterval(
-    `home-dashboard-${userId}`,
-    useCallback(() => {
-      if (navigator.onLine) {
-        console.log('⏰ [HOME] 60s auto-refresh for today');
-        loadDashboardData();
-      }
-    }, [loadDashboardData]),
-    60000, // Increased to 60 seconds
-    { enabled: isToday, runWhenHidden: false }
-  );
+  // REMOVED: Auto-refresh interval
+  // Per event-based sync architecture: Dashboard should only update via specific events
+  // (visitStatusChanged, attendanceMarked), not polling.
+  // Background sync updates cache, UI updates on next meaningful action.
     
   // Listen for explicit visit data changes
   useEffect(() => {
+    // CHANGED: visitDataChanged should NOT trigger full refresh
+    // Per offline-first architecture: Background sync updates cache,
+    // UI updates on next app resume or manual refresh
     const handleVisitDataChanged = () => {
-      console.log('📢 [HOME] visitDataChanged event received, refreshing...');
-      loadDashboardData();
+      console.log('📢 [HOME] visitDataChanged event received - local state already updated, no full refresh');
+      // NO loadDashboardData() - data was already updated locally by the action that triggered this event
     };
     
-    // Listen for sync complete event (offline -> online sync finished)
+    // CHANGED: syncComplete should NOT trigger full refresh
+    // Per offline-first architecture: Sync only backs up to server,
+    // UI already reflects local state
     const handleSyncComplete = () => {
-      console.log('🔄 [HOME] Sync complete, refreshing dashboard...');
-      setTimeout(() => {
-        loadDashboardData();
-      }, 500);
+      console.log('🔄 [HOME] Sync complete - cache synced to server, no UI refresh needed');
+      // NO loadDashboardData() - UI already shows correct local state
     };
     
     // Listen for visit status changes (immediate order updates) - includes orderValue for instant revenue update
@@ -631,20 +771,53 @@ export const useHomeDashboard = (userId: string | undefined, selectedDate: Date 
         }
       }
       
-      // Also trigger a background refresh to sync with latest data
-      setTimeout(() => loadDashboardData(), 1000);
+      // REMOVED: Background refresh after visitStatusChanged
+      // Per offline-first architecture: State was already updated above,
+      // no need for network refresh which can cause UI flickering
+    };
+    
+    // Handle immediate attendance lock when marked
+    const handleAttendanceMarked = (event: CustomEvent) => {
+      const attendanceRecord = event.detail;
+      if (attendanceRecord?.check_in_time) {
+        attendanceLockedRef.current = true;
+        lockedAttendanceRef.current = attendanceRecord;
+        setLockedAttendance(attendanceRecord);
+        
+        // Update state immediately with the new attendance
+        setData(prev => ({
+          ...prev,
+          todayData: {
+            ...prev.todayData,
+            attendance: attendanceRecord
+          }
+        }));
+        
+        // Also update the cache
+        saveToCache({
+          ...data,
+          todayData: {
+            ...data.todayData,
+            attendance: attendanceRecord
+          }
+        });
+        
+        console.log('[useHomeDashboard] 🔒 Attendance immediately locked after marking (persisted to localStorage)');
+      }
     };
     
     window.addEventListener('visitDataChanged', handleVisitDataChanged);
     window.addEventListener('syncComplete', handleSyncComplete);
     window.addEventListener('visitStatusChanged', handleVisitStatusChanged as EventListener);
+    window.addEventListener('attendanceMarked', handleAttendanceMarked as EventListener);
     
     return () => {
       window.removeEventListener('visitDataChanged', handleVisitDataChanged);
       window.removeEventListener('syncComplete', handleSyncComplete);
       window.removeEventListener('visitStatusChanged', handleVisitStatusChanged as EventListener);
+      window.removeEventListener('attendanceMarked', handleAttendanceMarked as EventListener);
     };
-  }, [loadDashboardData, userId, CACHE_KEY]);
+  }, [loadDashboardData, userId, CACHE_KEY, setLockedAttendance, saveToCache, data]);
 
   return { ...data, refresh: loadDashboardData };
 };

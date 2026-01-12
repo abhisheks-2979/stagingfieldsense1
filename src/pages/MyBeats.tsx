@@ -33,6 +33,8 @@ import { offlineStorage, STORES } from "@/lib/offlineStorage";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useDeleteConfirm } from "@/hooks/useDeleteConfirm";
+import { usePagination } from "@/hooks/usePagination";
+import { PaginationControls } from "@/components/ui/PaginationControls";
 
 
 interface Beat {
@@ -410,11 +412,8 @@ export const MyBeats = () => {
             .order('name');
 
           if (!error && onlineData) {
-            // Update cache
-            await offlineStorage.clear(STORES.RETAILERS);
-            for (const retailer of onlineData) {
-              await offlineStorage.save(STORES.RETAILERS, retailer);
-            }
+            // Update cache (single write to avoid UI hangs on large datasets)
+            await offlineStorage.replaceAll(STORES.RETAILERS, onlineData);
             
             // Update UI with fresh data
             const retailersWithMetrics = onlineData.map((retailer: any) => ({
@@ -923,6 +922,21 @@ export const MyBeats = () => {
     beat.name.toLowerCase().includes(beatSearchTerm.toLowerCase())
   );
 
+  // Pagination for beats - 10 items per page
+  const {
+    currentPage: beatsCurrentPage,
+    totalPages: beatsTotalPages,
+    paginatedItems: paginatedBeats,
+    goToPage: beatsGoToPage,
+    nextPage: beatsNextPage,
+    prevPage: beatsPrevPage,
+    startIndex: beatsStartIndex,
+    endIndex: beatsEndIndex,
+    totalItems: beatsTotalItems,
+    hasNextPage: beatsHasNextPage,
+    hasPrevPage: beatsHasPrevPage,
+  } = usePagination(filteredBeats, { pageSize: 10 });
+
   const getPriorityColor = (priority?: string) => {
     switch (priority) {
       case 'high': return 'bg-red-100 text-red-800 border-red-200';
@@ -1056,7 +1070,7 @@ export const MyBeats = () => {
                 </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredBeats.map((beat) => (
+              {paginatedBeats.map((beat) => (
                 <BeatCard
                   key={beat.id}
                   beat={beat}
@@ -1071,6 +1085,20 @@ export const MyBeats = () => {
                 />
               ))}
             </div>
+            
+            {/* Beats Pagination */}
+            <PaginationControls
+              currentPage={beatsCurrentPage}
+              totalPages={beatsTotalPages}
+              startIndex={beatsStartIndex}
+              endIndex={beatsEndIndex}
+              totalItems={beatsTotalItems}
+              hasNextPage={beatsHasNextPage}
+              hasPrevPage={beatsHasPrevPage}
+              onNextPage={beatsNextPage}
+              onPrevPage={beatsPrevPage}
+              onGoToPage={beatsGoToPage}
+            />
           </div>
         )}
         </div>

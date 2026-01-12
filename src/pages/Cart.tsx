@@ -31,7 +31,8 @@ import { getLocalTodayDate } from "@/utils/dateUtils";
 import { isSlowConnection } from "@/utils/internetSpeedCheck";
 import { useOfflineSchemes } from "@/hooks/useOfflineSchemes";
 import { useAppliedSchemes } from "@/hooks/useAppliedSchemes";
-import { calculateOrderWithSchemes, SchemeItem, formatSchemeDetailsForInvoice } from "@/utils/schemeEngine";
+import { calculateOrderWithSchemes, SchemeItem, formatSchemeDetailsForInvoice, ItemSchemeDetail } from "@/utils/schemeEngine";
+import { markVisitDataChanged } from "@/lib/visitChangeMarker";
 
 interface CartItem {
   id: string;
@@ -42,6 +43,7 @@ interface CartItem {
   base_unit?: string;
   quantity: number;
   total: number;
+  hsn_code?: string;
   schemeConditionQuantity?: number;
   schemeDiscountPercentage?: number;
   schemes?: Array<{
@@ -65,6 +67,17 @@ const getDisplayQuantityAndUnit = (item: CartItem) => {
     return { qty: item.quantity / 1000, unit: 'KG' };
   }
   return { qty: item.quantity, unit: item.unit };
+};
+
+// Helper to get quantity increment based on display unit
+const getQuantityIncrement = (item: CartItem) => {
+  const displayUnit = item.display_unit?.toLowerCase() || item.unit?.toLowerCase() || 'grams';
+  // If display unit is KG, increment by 1000 grams (1 KG)
+  if (displayUnit === 'kg' || displayUnit === 'kilogram' || displayUnit === 'kilograms') {
+    return 1000;
+  }
+  // Otherwise increment by 1 (for grams, pieces, etc.)
+  return 1;
 };
 
 // Format quantity for display (show decimals only if needed)
@@ -195,14 +208,32 @@ export const Cart = () => {
   const [retailerData, setRetailerData] = React.useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = React.useState<any>(null);
   const [selectedTemplateItems, setSelectedTemplateItems] = React.useState<any[]>([]);
-  // Background fetch for pending amount - non-blocking (schemes now come from useOfflineSchemes)
+  const [distributorInfo, setDistributorInfo] = React.useState<{ id: string | null; name: string | null }>({ id: null, name: null });
+  
+  // Background fetch for pending amount AND distributor - non-blocking (schemes now come from useOfflineSchemes)
   React.useEffect(() => {
     // Only fetch if online
     if (!navigator.onLine || !validRetailerId) return;
     
-    supabase.from('retailers').select('pending_amount').eq('id', validRetailerId).single()
+    // Fetch retailer's pending amount and distributor mapping
+    supabase.from('retailers').select('pending_amount, distributor_id, distributors(id, name)').eq('id', validRetailerId).single()
       .then(({ data }) => {
-        if (data) setPendingAmountFromPrevious(Number(data.pending_amount ?? 0));
+        if (data) {
+          setPendingAmountFromPrevious(Number(data.pending_amount ?? 0));
+          // Store distributor info for order submission
+          const distributor = data.distributors as any;
+          if (distributor) {
+            setDistributorInfo({ id: distributor.id, name: distributor.name });
+          } else if (data.distributor_id) {
+            // Fallback: distributor_id exists but join failed, fetch separately
+            supabase.from('distributors').select('id, name').eq('id', data.distributor_id).single()
+              .then(({ data: distData }) => {
+                if (distData) {
+                  setDistributorInfo({ id: distData.id, name: distData.name });
+                }
+              });
+          }
+        }
       });
   }, [validRetailerId]);
 
@@ -363,14 +394,22 @@ export const Cart = () => {
     }
     setCartItems(prev => prev.map(item => {
       if (item.id === productId) {
+        // Calculate display_quantity based on the display unit
+        const displayUnit = item.display_unit?.toLowerCase() || item.unit?.toLowerCase() || 'grams';
+        const isKgUnit = displayUnit === 'kg' || displayUnit === 'kilogram' || displayUnit === 'kilograms';
+        
+        // Calculate the new display quantity correctly based on the internal quantity
+        const newDisplayQuantity = isKgUnit ? newQuantity / 1000 : newQuantity;
+
         const updatedItem = {
           ...item,
-          quantity: newQuantity
+          quantity: newQuantity,
+          display_quantity: newDisplayQuantity
         };
 
         // Remove pre-calculated total so schemes are recalculated based on new quantity
-        delete updatedItem.total;
-        console.log('Updating quantity for:', updatedItem.name, 'New quantity:', newQuantity, 'Schemes will be recalculated');
+        delete (updatedItem as any).total;
+        console.log('Updating quantity for:', updatedItem.name, 'New quantity:', newQuantity, 'Display quantity:', newDisplayQuantity, 'Schemes will be recalculated');
 
         // Update OrderEntry quantities storage - make sure to sync correctly
         updateOrderEntryQuantities(productId, newQuantity);
@@ -695,53 +734,73 @@ export const Cart = () => {
 
       console.time('⚡ Order Submission');
 
-      // For phone orders, create a visit first
+      // ALWAYS ensure we have a visit for this order (phone orders AND regular orders)
+      // This ensures visit_id is never NULL in orders, fixing Today's Progress update issues
       let actualVisitId = validVisitId;
-      if (isPhoneOrder && !validVisitId && validRetailerId) {
-        const today = getLocalTodayDate();
-        const isOnline = connectivityStatus === 'online' && navigator.onLine;
-        
+      const today = getLocalTodayDate();
+      const isOnline = connectivityStatus === 'online' && navigator.onLine;
+      
+      // If no visit exists, find or create one
+      if (!actualVisitId && validRetailerId && currentUserId) {
+        // First check if a visit already exists for this retailer today
         if (isOnline) {
-          // Online: Create visit via Supabase
-          const {
-            data: newVisit,
-            error: visitError
-          } = await supabase.from('visits').insert({
-            user_id: currentUserId,
-            retailer_id: validRetailerId,
-            planned_date: today,
-            status: 'productive',
-            skip_check_in_reason: 'phone-order',
-            skip_check_in_time: new Date().toISOString()
-          }).select().single();
+          const { data: existingVisit } = await supabase
+            .from('visits')
+            .select('id')
+            .eq('user_id', currentUserId)
+            .eq('retailer_id', validRetailerId)
+            .eq('planned_date', today)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
           
-          if (visitError) {
-            console.error('Error creating phone order visit:', visitError);
-            // Don't block offline - continue without visit ID
-            console.warn('Continuing without visit ID for offline sync');
+          if (existingVisit) {
+            actualVisitId = existingVisit.id;
+            console.log('[Cart] Found existing visit:', actualVisitId);
           } else {
-            actualVisitId = newVisit.id;
+            // Create new visit with productive status
+            const { data: newVisit, error: visitError } = await supabase
+              .from('visits')
+              .insert({
+                user_id: currentUserId,
+                retailer_id: validRetailerId,
+                planned_date: today,
+                status: 'productive',
+                skip_check_in_reason: isPhoneOrder ? 'phone-order' : 'direct-order',
+                skip_check_in_time: new Date().toISOString()
+              })
+              .select()
+              .single();
+            
+            if (visitError) {
+              console.error('Error creating visit:', visitError);
+              // Continue with generated ID for offline sync
+            } else if (newVisit) {
+              actualVisitId = newVisit.id;
+              console.log('[Cart] Created new visit:', actualVisitId);
+            }
           }
-        } else {
-          // Offline: Generate local visit ID and queue for sync
-          const localVisitId = crypto.randomUUID();
-          actualVisitId = localVisitId;
+        }
+        
+        // If still no visit ID (offline or error), generate one for local use
+        if (!actualVisitId) {
+          actualVisitId = crypto.randomUUID();
           
           const offlineVisit = {
-            id: localVisitId,
+            id: actualVisitId,
             user_id: currentUserId,
             retailer_id: validRetailerId,
             planned_date: today,
             status: 'productive',
-            skip_check_in_reason: 'phone-order',
+            skip_check_in_reason: isPhoneOrder ? 'phone-order' : 'direct-order',
             skip_check_in_time: new Date().toISOString(),
             created_at: new Date().toISOString()
           };
           
-          // Queue visit creation for sync
+          // Queue visit creation for sync and save locally
           await offlineStorage.addToSyncQueue('CREATE_VISIT', offlineVisit);
           await offlineStorage.save(STORES.VISITS, offlineVisit);
-          console.log('📵 Phone order visit queued for offline sync:', localVisitId);
+          console.log('📵 Visit queued for offline sync:', actualVisitId);
         }
       }
 
@@ -749,8 +808,7 @@ export const Cart = () => {
       const schemeDetailsText = formatSchemeDetailsForInvoice(orderCalculation.appliedSchemes);
 
       // Prepare order data - use currentUserId which works both online and offline
-      // Only include visit_id if it's a valid UUID (not offline-generated)
-      const shouldIncludeVisitId = actualVisitId && /^[0-9a-fA-F-]{36}$/.test(actualVisitId);
+      // ALWAYS include visit_id - we now ensure it always exists above
       
       // CRITICAL FIX: Generate idempotency key to prevent duplicate orders
       // This key is unique per order attempt and will be checked before insertion
@@ -758,9 +816,12 @@ export const Cart = () => {
       
       const orderData = {
         user_id: currentUserId,
-        ...(shouldIncludeVisitId && { visit_id: actualVisitId }),
+        visit_id: actualVisitId, // ALWAYS include - ensures database trigger can update visit status
         retailer_id: validRetailerId,
         retailer_name: retailerName,
+        // CRITICAL: Store distributor at order time - this preserves the mapping even if retailer's distributor changes later
+        distributor_id: distributorInfo.id || null,
+        distributor_name: distributorInfo.name || null,
         order_date: getLocalTodayDate(),
         subtotal,
         discount_amount: discountAmount,
@@ -814,9 +875,30 @@ export const Cart = () => {
         };
       });
 
+      // Add free items from BOGO schemes as separate order items with ₹0 price
+      const freeOrderItems = orderCalculation.appliedSchemes
+        .filter(s => s.free_items && s.free_items.length > 0)
+        .flatMap(s => s.free_items!.map(freeItem => ({
+          product_id: freeItem.product_id || 'FREE_ITEM',
+          product_name: `${freeItem.product_name} (FREE)`,
+          category: 'Free Item',
+          rate: 0,
+          original_rate: freeItem.original_rate || 0,
+          discount_amount: 0,
+          unit: freeItem.unit || 'pcs',
+          quantity: freeItem.quantity,
+          total: 0,
+          hsn_code: null,
+          sgst_amount: 0,
+          cgst_amount: 0
+        })));
+
+      // Combine regular items with free items
+      const allOrderItems = [...orderItems, ...freeOrderItems];
+
       // Submit order using offline-capable utility with improved feedback
       let orderSubmissionFailed = false;
-      const result = await submitOrderWithOfflineSupport(orderData, orderItems, {
+      const result = await submitOrderWithOfflineSupport(orderData, allOrderItems, {
         connectivityStatus,
         onOffline: () => {
           toast({
@@ -947,8 +1029,21 @@ export const Cart = () => {
           }
         }));
         
+        // Dispatch order submitted event for visit time tracking
+        window.dispatchEvent(new CustomEvent('orderSubmitted', {
+          detail: {
+            retailerId: validRetailerId,
+            visitId: actualVisitId,
+            orderValue: totalAmount
+          }
+        }));
+        
         // CRITICAL FIX: Also dispatch visitDataChanged to trigger data refreshes across the app
         window.dispatchEvent(new Event('visitDataChanged'));
+        
+        // CRITICAL FIX: Mark data changed for cross-page state sync
+        // This ensures My Visits will reload from snapshot when returning
+        markVisitDataChanged();
       }
 
       // Navigate to My Visits page immediately
@@ -1331,7 +1426,7 @@ export const Cart = () => {
             </CardContent>
           </Card> : <>
             <div className="space-y-2">
-              {cartItems.map(item => {
+          {cartItems.map(item => {
             const discount = computeItemDiscount(item);
             const finalPrice = computeItemTotal(item);
             const hasDiscount = discount > 0;
@@ -1345,6 +1440,9 @@ export const Cart = () => {
               ? getDisplayRate(item) * 1000
               : getDisplayRate(item);
             
+            // Get scheme details for this item
+            const itemSchemes = orderCalculation.itemSchemeDetails?.[item.id] || [];
+            
             return <Card key={item.id} className="border-border/50">
                     <CardContent className="p-2.5">
                       <div className="flex items-center gap-1.5">
@@ -1352,18 +1450,40 @@ export const Cart = () => {
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-sm truncate leading-tight">{displayName}</h3>
                           <p className="text-xs text-muted-foreground">₹{ratePerDisplayUnit.toFixed(2)}/{displayUnit}</p>
+                          
+                          {/* Show applied scheme details */}
+                          {itemSchemes.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {itemSchemes.map((scheme, idx) => (
+                                <div key={idx} className="flex items-center gap-1 text-[10px] text-green-600">
+                                  <Gift size={10} className="flex-shrink-0" />
+                                  <span className="truncate">
+                                    {scheme.schemeType === 'buy_x_get_y_free' || scheme.schemeType === 'buy_get_free' ? (
+                                      <>🎁 {scheme.schemeName}: Get {scheme.freeItemQty} {scheme.freeItemName} FREE</>
+                                    ) : (
+                                      <>
+                                        {scheme.schemeName}
+                                        {scheme.discountPercentage && ` (${scheme.discountPercentage}% off)`}
+                                        {scheme.discountAmount > 0 && ` - ₹${scheme.discountAmount.toFixed(2)} saved`}
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         
                         {/* Quantity Controls - Compact */}
                         <div className="flex items-center gap-1 shrink-0">
-                          <Button variant="outline" size="icon" className="h-6 w-6 text-xs" onClick={() => updateQuantity(item.id, item.quantity - 1)}>
+                          <Button variant="outline" size="icon" className="h-6 w-6 text-xs" onClick={() => updateQuantity(item.id, item.quantity - getQuantityIncrement(item))}>
                             -
                           </Button>
                           <div className="min-w-[40px] text-center">
                             <div className="text-xs font-medium leading-tight">{formatDisplayQuantity(displayQty)}</div>
                             <div className="text-[10px] text-muted-foreground leading-tight">{displayUnit}</div>
                           </div>
-                          <Button variant="outline" size="icon" className="h-6 w-6 text-xs" onClick={() => updateQuantity(item.id, item.quantity + 1)}>
+                          <Button variant="outline" size="icon" className="h-6 w-6 text-xs" onClick={() => updateQuantity(item.id, item.quantity + getQuantityIncrement(item))}>
                             +
                           </Button>
                         </div>
@@ -1391,6 +1511,33 @@ export const Cart = () => {
                   </Card>;
           })}
             </div>
+
+            {/* Free Items from BOGO Schemes - Display as product cards */}
+            {orderCalculation.appliedSchemes
+              .filter(s => s.free_items && s.free_items.length > 0)
+              .flatMap(s => s.free_items!)
+              .map((freeItem, idx) => (
+                <Card key={`free-${idx}`} className="border-green-200 bg-green-50/50">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
+                        <Gift size={20} className="text-green-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm truncate">{freeItem.product_name}</span>
+                          <Badge className="bg-green-500 text-white text-xs shrink-0">FREE</Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground">Qty: {freeItem.quantity} {freeItem.unit || 'pcs'}</span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-lg font-bold text-green-600">₹0</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            }
 
             {/* Order Summary */}
             <Card>

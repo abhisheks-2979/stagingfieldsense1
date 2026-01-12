@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Layout } from "@/components/Layout";
-import { Plus, MapPin, Phone, Store, Camera, Tag, X, ScanLine, Check, ChevronsUpDown, WifiOff, ChevronDown } from "lucide-react";
+import { Plus, MapPin, Phone, Store, Camera, Tag, X, ScanLine, Check, ChevronsUpDown, WifiOff, ChevronDown, Pencil, ArrowLeft, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,30 +32,73 @@ export const AddRetailer = () => {
   const connectivityStatus = useConnectivity();
   const returnTo = location.state?.returnTo || '/my-retailers';
   const plannedBeats = location.state?.plannedBeats || [];
-  const [retailerData, setRetailerData] = useState({
-    name: "",
-    gstNumber: "",
-    phone: "",
-    address: "",
-    category: "",
-    notes: "",
-    parentType: "Distributor", // Default to Distributor
-    parentName: "BHARATH BEVERAGES",
-    selectedDistributors: [] as string[], // Array for multiple distributors
-    locationTag: "",
-    retailType: "",
-    potential: "",
-    competitor1: "",
-    competitor2: "",
-    competitor3: "",
-    latitude: "",
-    longitude: "",
-    photo_url: "",
-    manual_credit_score: "",
-    state: ""
+  
+  // Edit mode: check if retailer data is passed via location state
+  const editingRetailer = location.state?.retailer as any | null;
+  const isEditMode = !!editingRetailer;
+  
+  const [retailerData, setRetailerData] = useState(() => {
+    if (editingRetailer) {
+      // Pre-fill form with existing retailer data
+      const competitors = editingRetailer.competitors || [];
+      return {
+        name: editingRetailer.name || "",
+        contactName: editingRetailer.contact_name || "",
+        contactTitle: editingRetailer.contact_title || "",
+        gstNumber: editingRetailer.gst_number || "",
+        phone: editingRetailer.phone || "",
+        address: editingRetailer.address || "",
+        category: editingRetailer.category || "",
+        notes: editingRetailer.notes || "",
+        parentType: editingRetailer.parent_type || "Distributor",
+        parentName: editingRetailer.parent_name || "",
+        selectedDistributors: [] as string[], // Will be populated after distributors load
+        locationTag: editingRetailer.location_tag || "",
+        retailType: editingRetailer.retail_type || "",
+        potential: editingRetailer.potential ? editingRetailer.potential.charAt(0).toUpperCase() + editingRetailer.potential.slice(1) : "",
+        competitor1: competitors[0] || "",
+        competitor2: competitors[1] || "",
+        competitor3: competitors[2] || "",
+        latitude: editingRetailer.latitude?.toString() || "",
+        longitude: editingRetailer.longitude?.toString() || "",
+        photo_url: editingRetailer.photo_url || "",
+        manual_credit_score: editingRetailer.manual_credit_score?.toString() || "",
+        state: editingRetailer.state || ""
+      };
+    }
+    return {
+      name: "",
+      contactName: "",
+      contactTitle: "",
+      gstNumber: "",
+      phone: "",
+      address: "",
+      category: "",
+      notes: "",
+      parentType: "Distributor",
+      parentName: "BHARATH BEVERAGES",
+      selectedDistributors: [] as string[],
+      locationTag: "",
+      retailType: "",
+      potential: "",
+      competitor1: "",
+      competitor2: "",
+      competitor3: "",
+      latitude: "",
+      longitude: "",
+      photo_url: "",
+      manual_credit_score: "",
+      state: ""
+    };
   });
+  
+  // State to track the scanned board photo URL
+  const [scannedBoardPhotoUrl, setScannedBoardPhotoUrl] = useState<string | null>(null);
+  
+  const contactTitles = ["Shop owner", "Support staff", "Family member", "Others"];
 
   const [isSaving, setIsSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
   const [beatDialogOpen, setBeatDialogOpen] = useState(false);
   const [existingBeat, setExistingBeat] = useState<string | undefined>();
   const [newBeat, setNewBeat] = useState("");
@@ -73,6 +116,12 @@ export const AddRetailer = () => {
   const [creditConfig, setCreditConfig] = useState<{is_enabled: boolean, scoring_mode: string} | null>(null);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [stateComboOpen, setStateComboOpen] = useState(false);
+  
+  // Owner field states
+  const [allUsers, setAllUsers] = useState<{id: string, full_name: string}[]>([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
+  const [selectedOwnerName, setSelectedOwnerName] = useState<string>('');
+  const [ownerComboOpen, setOwnerComboOpen] = useState(false);
 
   const categories = ["Category A", "Category B", "Category C"];
   const parentTypes = ["Company", "Super Stockist", "Distributor"];
@@ -295,12 +344,29 @@ export const AddRetailer = () => {
     }
   };
 
+  // Load all users for owner dropdown
+  const loadAllUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .order('full_name');
+      
+      if (error) throw error;
+      setAllUsers((data || []).filter(u => u.full_name));
+    } catch (error) {
+      console.error('Error loading users:', error);
+      setAllUsers([]);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadDistributors();
       loadBeats();
       loadTerritories();
       loadCreditConfig();
+      loadAllUsers();
     }
   }, [user, connectivityStatus]); // Re-run when connectivity changes
 
@@ -317,14 +383,60 @@ export const AddRetailer = () => {
     return () => window.removeEventListener('beatCreated', handleBeatCreated);
   }, [user]);
 
-  // Auto-select beat if coming from My Visits with planned beat(s)
+  // Auto-select beat if coming from My Visits with planned beat(s) or editing
   useEffect(() => {
-    if (plannedBeats.length > 0 && !selectedBeat) {
+    if (isEditMode && editingRetailer?.beat_id && !selectedBeat) {
+      setSelectedBeat(editingRetailer.beat_id);
+    } else if (plannedBeats.length > 0 && !selectedBeat) {
       // If only one beat planned, auto-select it
       // If multiple beats, auto-select the first one
       setSelectedBeat(plannedBeats[0].beat_id);
     }
-  }, [plannedBeats, selectedBeat]);
+  }, [plannedBeats, selectedBeat, isEditMode, editingRetailer]);
+
+  // Set territory when in edit mode
+  useEffect(() => {
+    if (isEditMode && editingRetailer?.territory_id) {
+      setSelectedTerritoryId(editingRetailer.territory_id);
+    }
+  }, [isEditMode, editingRetailer]);
+
+  // Set owner when in edit mode, or auto-fill with current user for new retailers
+  useEffect(() => {
+    if (isEditMode && editingRetailer?.owner_id) {
+      setSelectedOwnerId(editingRetailer.owner_id);
+      setSelectedOwnerName(editingRetailer.owner_name || '');
+    } else if (!isEditMode && user && allUsers.length > 0 && !selectedOwnerId) {
+      // Auto-fill owner with current user when creating new retailer
+      const currentUserProfile = allUsers.find(u => u.id === user.id);
+      if (currentUserProfile) {
+        setSelectedOwnerId(user.id);
+        setSelectedOwnerName(currentUserProfile.full_name || '');
+      }
+    }
+  }, [isEditMode, editingRetailer, user, allUsers, selectedOwnerId]);
+  
+  // Set photo preview when editing
+  useEffect(() => {
+    if (isEditMode && editingRetailer?.photo_url) {
+      setCapturedPhotoPreview(editingRetailer.photo_url);
+    }
+  }, [isEditMode, editingRetailer]);
+
+  // Pre-fill distributor selection when editing
+  useEffect(() => {
+    if (isEditMode && editingRetailer?.distributor_id && distributors.length > 0) {
+      // Check if the distributor exists in loaded distributors
+      const existingDistributor = distributors.find(d => d.id === editingRetailer.distributor_id);
+      if (existingDistributor && !retailerData.selectedDistributors.includes(editingRetailer.distributor_id)) {
+        setRetailerData(prev => ({
+          ...prev,
+          selectedDistributors: [editingRetailer.distributor_id],
+          parentName: existingDistributor.name
+        }));
+      }
+    }
+  }, [isEditMode, editingRetailer, distributors]);
 
   const loadCreditConfig = async () => {
     try {
@@ -343,6 +455,10 @@ export const AddRetailer = () => {
 
   const handleInputChange = (field: string, value: string | string[]) => {
     setRetailerData(prev => ({ ...prev, [field]: value }));
+    // Clear validation error when user fills the field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => ({ ...prev, [field]: '' }));
+    }
   };
 
   const handleDistributorToggle = (distributorId: string, distributorName: string) => {
@@ -514,6 +630,38 @@ export const AddRetailer = () => {
             const compressedImage = await compressImage(base64Image);
 
             try {
+              // Upload the scanned image to Supabase Storage for reuse
+              const fileName = `${user.id}/${Date.now()}_scanned_board.jpg`;
+              
+              // Convert compressed base64 to blob for upload
+              const fetchRes = await fetch(compressedImage);
+              const blob = await fetchRes.blob();
+              
+              const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('retailer-photos')
+                .upload(fileName, blob, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+
+              if (!uploadError && uploadData) {
+                // Get public URL
+                const { data: urlData } = supabase.storage
+                  .from('retailer-photos')
+                  .getPublicUrl(fileName);
+                
+                const uploadedPhotoUrl = urlData.publicUrl;
+                
+                // Set as scanned board preview
+                setScannedBoardPhotoUrl(uploadedPhotoUrl);
+                
+                // Also use this as retailer photo if no photo is set yet
+                if (!retailerData.photo_url) {
+                  handleInputChange('photo_url', uploadedPhotoUrl);
+                  setCapturedPhotoPreview(compressedImage);
+                }
+              }
+
               // Call edge function with compressed image
               const { data, error } = await supabase.functions.invoke('scan-board', {
                 body: { imageBase64: compressedImage }
@@ -561,13 +709,13 @@ export const AddRetailer = () => {
               if (fieldsFound.length > 0) {
                 toast({ 
                   title: 'Success!', 
-                  description: `Found ${fieldsFound.join(', ')} from the board`,
+                  description: `Found ${fieldsFound.join(', ')} from the board. Photo saved as retailer photo.`,
                   duration: 3000
                 });
               } else {
                 toast({ 
                   title: 'Scan Complete', 
-                  description: 'No clear information found. Please enter details manually.',
+                  description: 'No clear information found. Photo saved. Please enter details manually.',
                   duration: 3000
                 });
               }
@@ -628,8 +776,9 @@ export const AddRetailer = () => {
     setIsSaving(true);
     
     const payload: any = {
-      user_id: user.id,
       name: retailerData.name,
+      contact_name: retailerData.contactName || null,
+      contact_title: retailerData.contactTitle || null,
       gst_number: retailerData.gstNumber || null,
       phone: retailerData.phone,
       address: retailerData.address,
@@ -637,7 +786,6 @@ export const AddRetailer = () => {
       beat_id: beatId,
       beat_name: beats.find(b => b.beat_id === beatId)?.beat_name || null,
       territory_id: selectedTerritoryId || null,
-      status: 'active',
       notes: retailerData.notes || null,
       parent_type: retailerData.parentType || null,
       parent_name: retailerData.parentName || null,
@@ -650,30 +798,63 @@ export const AddRetailer = () => {
       longitude: retailerData.longitude ? parseFloat(retailerData.longitude) : null,
       manual_credit_score: retailerData.manual_credit_score ? parseFloat(retailerData.manual_credit_score) : null,
       state: retailerData.state || null,
+      owner_id: selectedOwnerId || null,
+      owner_name: selectedOwnerName || null,
     };
 
-    const result = await createRetailer(payload);
-    setIsSaving(false);
-
-    if (result.success) {
-      const message = result.offline 
-        ? `${retailerData.name} saved offline. Will sync when online.`
-        : `${retailerData.name} saved successfully.`;
-      
-      toast({ 
-        title: result.offline ? 'Retailer Saved Offline' : 'Retailer Added', 
-        description: message,
-        action: result.offline ? <WifiOff className="h-4 w-4" /> : undefined
-      });
-      
-      // Navigate back to the return path
-      navigate(returnTo, { replace: true });
+    if (isEditMode && editingRetailer?.id) {
+      // Update existing retailer
+      try {
+        const { error } = await supabase
+          .from('retailers')
+          .update(payload)
+          .eq('id', editingRetailer.id);
+        
+        setIsSaving(false);
+        
+        if (error) throw error;
+        
+        toast({ 
+          title: 'Retailer Updated', 
+          description: `${retailerData.name} updated successfully.`
+        });
+        navigate(returnTo, { replace: true });
+      } catch (error: any) {
+        console.error('Error updating retailer:', error);
+        toast({ 
+          title: 'Failed to update', 
+          description: error.message || 'Could not update retailer', 
+          variant: 'destructive' 
+        });
+        setIsSaving(false);
+      }
     } else {
-      toast({ 
-        title: 'Failed to save', 
-        description: 'Could not save retailer', 
-        variant: 'destructive' 
-      });
+      // Create new retailer
+      payload.user_id = user.id;
+      payload.status = 'active';
+      
+      const result = await createRetailer(payload);
+      setIsSaving(false);
+
+      if (result.success) {
+        const message = result.offline 
+          ? `${retailerData.name} saved offline. Will sync when online.`
+          : `${retailerData.name} saved successfully.`;
+        
+        toast({ 
+          title: result.offline ? 'Retailer Saved Offline' : 'Retailer Added', 
+          description: message,
+          action: result.offline ? <WifiOff className="h-4 w-4" /> : undefined
+        });
+        
+        navigate(returnTo, { replace: true });
+      } else {
+        toast({ 
+          title: 'Failed to save', 
+          description: 'Could not save retailer', 
+          variant: 'destructive' 
+        });
+      }
     }
   };
 
@@ -706,48 +887,41 @@ export const AddRetailer = () => {
     setBeatDialogOpen(false);
   };
 
+  // Validate form and return errors object
+  const validateForm = () => {
+    const errors: {[key: string]: string} = {};
+    
+    if (!retailerData.name) errors.name = "Retailer name is required";
+    if (!retailerData.phone) errors.phone = "Phone number is required";
+    if (!retailerData.address) errors.address = "Address is required";
+    if (!retailerData.retailType) errors.retailType = "Retailer type is required";
+    if (!retailerData.category) errors.category = "Category is required";
+    if (!selectedBeat || selectedBeat === 'unassigned') errors.beat = "Beat selection is required";
+    if (!retailerData.parentType) errors.parentType = "Parent type is required";
+    if (retailerData.parentType === "Distributor" && (!retailerData.selectedDistributors || retailerData.selectedDistributors.length === 0)) {
+      errors.distributor = "Distributor selection is required";
+    }
+    
+    return errors;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!retailerData.name || !retailerData.phone || !retailerData.address) {
+    
+    // Validate form and show inline errors immediately (works offline)
+    const errors = validateForm();
+    setValidationErrors(errors);
+    
+    if (Object.keys(errors).length > 0) {
+      // Show toast as backup, but inline errors will always show
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields (Name, Phone, Address)",
+        title: "Missing Required Fields",
+        description: "Please fill in all fields marked with *",
         variant: "destructive"
       });
       return;
     }
-    if (!retailerData.retailType) {
-      toast({
-        title: "Retailer Type Required",
-        description: "Please select a retailer type",
-        variant: "destructive"
-      });
-      return;
-    }
-    if (!retailerData.category) {
-      toast({
-        title: "Category Required",
-        description: "Please select a category",
-        variant: "destructive"
-      });
-      return;
-    }
-    if (!selectedBeat || selectedBeat === 'unassigned') {
-      toast({
-        title: "Beat Required",
-        description: "Please select a beat for this retailer",
-        variant: "destructive"
-      });
-      return;
-    }
-    if (retailerData.parentType === "Distributor" && (!retailerData.selectedDistributors || retailerData.selectedDistributors.length === 0)) {
-      toast({
-        title: "Distributor Required",
-        description: "Please select a distributor for this retailer",
-        variant: "destructive"
-      });
-      return;
-    }
+    
     // Save with selected beat
     await performInsert(selectedBeat);
   };
@@ -760,12 +934,25 @@ export const AddRetailer = () => {
         <Card className="shadow-card bg-gradient-primary text-primary-foreground">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate(returnTo)}
+                className="text-primary-foreground hover:bg-primary-foreground/20"
+              >
+                <ArrowLeft size={20} />
+              </Button>
               <div>
-                <CardTitle className="text-xl font-bold">{t('retailer.addRetailer')}</CardTitle>
-                <p className="text-primary-foreground/80">{t('retailer.subtitle')}</p>
+                <CardTitle className="text-xl font-bold">
+                  {isEditMode ? t('retailer.editRetailer', 'Edit Retailer') : t('retailer.addRetailer')}
+                </CardTitle>
+                <p className="text-primary-foreground/80 text-sm">
+                  {isEditMode ? editingRetailer?.name : t('retailer.subtitle')}
+                </p>
               </div>
             </div>
-            <Plus size={24} />
+            {isEditMode ? <Pencil size={24} /> : <Plus size={24} />}
           </CardHeader>
         </Card>
 
@@ -776,29 +963,123 @@ export const AddRetailer = () => {
               <CardTitle className="text-lg">{t('retailer.information')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Scan Board Section */}
-              <div className="space-y-2 p-3 bg-muted/30 rounded-lg border border-dashed">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-base font-semibold">{t('retailer.quickScan')}</Label>
-                    <p className="text-xs text-muted-foreground mt-1">
+              {/* Scan Board & Retailer Photo Section - Side by Side with Background */}
+              <div className="p-3 bg-muted/50 rounded-xl border border-border">
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Scan Board */}
+                  <div className="flex flex-col items-center text-center p-3 bg-background rounded-lg border border-border min-h-[180px]">
+                    <ScanLine className="h-8 w-8 text-muted-foreground mb-1 flex-shrink-0" />
+                    <Label className="text-xs font-semibold mb-0.5">{t('retailer.quickScan')}</Label>
+                    <p className="text-[10px] text-muted-foreground mb-2 flex-1 leading-tight">
                       {t('retailer.quickScanDesc')}
                     </p>
+                    {scannedBoardPhotoUrl && (
+                      <div className="mb-2 w-12 h-12 border-2 border-primary rounded-lg overflow-hidden flex-shrink-0">
+                        <img
+                          src={scannedBoardPhotoUrl}
+                          alt="Scanned board"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      onClick={handleScanBoard}
+                      disabled={isScanningBoard}
+                      className="w-full mt-auto text-xs px-2"
+                    >
+                      <ScanLine size={14} className="mr-1 flex-shrink-0" />
+                      <span className="truncate">{isScanningBoard ? 'Scanning...' : 'Scan Board'}</span>
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    onClick={handleScanBoard}
-                    disabled={isScanningBoard}
-                    className="flex items-center gap-2"
-                  >
-                    <ScanLine size={16} />
-                    {isScanningBoard ? t('retailer.scanning') : t('retailer.scanBoard')}
-                  </Button>
+                  
+                  {/* Retailer Photo */}
+                  <div className="flex flex-col items-center text-center p-3 bg-background rounded-lg border border-border min-h-[180px]">
+                    <Camera className="h-8 w-8 text-muted-foreground mb-1 flex-shrink-0" />
+                    <Label className="text-xs font-semibold mb-0.5">{t('retailer.retailerPhoto')}</Label>
+                    <p className="text-[10px] text-muted-foreground mb-2 flex-1 leading-tight">
+                      {t('retailer.photoDesc')}
+                    </p>
+                    {(capturedPhotoPreview || retailerData.photo_url) && (
+                      <div className="mb-2 w-12 h-12 border-2 border-primary rounded-lg overflow-hidden flex-shrink-0">
+                        <img
+                          src={capturedPhotoPreview || retailerData.photo_url}
+                          alt="Retailer photo"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePhotoCapture}
+                      disabled={isUploadingPhoto}
+                      className="w-full mt-auto text-xs px-2"
+                    >
+                      <Camera size={14} className="mr-1 flex-shrink-0" />
+                      <span className="truncate">{isUploadingPhoto ? 'Uploading...' : 'Take Photo'}</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
 
+              {/* Owner Field - Searchable Dropdown */}
+              <div className="space-y-2">
+                <Label>Owner</Label>
+                <Popover open={ownerComboOpen} onOpenChange={setOwnerComboOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={ownerComboOpen}
+                      className="w-full justify-between bg-background"
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <User size={16} className="text-muted-foreground flex-shrink-0" />
+                        <span className="truncate">
+                          {selectedOwnerName || "Select owner..."}
+                        </span>
+                      </div>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0 z-50" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search users..." />
+                      <CommandList>
+                        <CommandEmpty>No user found.</CommandEmpty>
+                        <CommandGroup className="max-h-60 overflow-auto">
+                          {allUsers.map((u) => (
+                            <CommandItem
+                              key={u.id}
+                              value={u.full_name}
+                              onSelect={() => {
+                                setSelectedOwnerId(u.id);
+                                setSelectedOwnerName(u.full_name);
+                                setOwnerComboOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedOwnerId === u.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {u.full_name}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-muted-foreground">Auto-filled with current user. Change if needed.</p>
+              </div>
+
+              {/* Retailer Name */}
               <div className="space-y-2">
                 <Label htmlFor="name">{t('retailer.retailerName')} *</Label>
                 <Input
@@ -810,6 +1091,36 @@ export const AddRetailer = () => {
                 />
               </div>
 
+              {/* Contact Name and Title - Under Retailer Name */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="contactName">Contact Name</Label>
+                  <Input
+                    id="contactName"
+                    placeholder="Enter contact person name"
+                    value={retailerData.contactName}
+                    onChange={(e) => handleInputChange("contactName", e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contactTitle">Title</Label>
+                  <Select 
+                    value={retailerData.contactTitle} 
+                    onValueChange={(value) => handleInputChange("contactTitle", value)}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Select title" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-background border z-50">
+                      {contactTitles.map((title) => (
+                        <SelectItem key={title} value={title}>{title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="gstNumber">{t('retailer.gstNumber')}</Label>
                 <Input
@@ -819,38 +1130,6 @@ export const AddRetailer = () => {
                   onChange={(e) => handleInputChange("gstNumber", e.target.value)}
                   className="bg-background"
                 />
-              </div>
-
-              {/* Photo Attachment Section */}
-              <div className="space-y-2">
-                <Label>{t('retailer.retailerPhoto')}</Label>
-                <div className="flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePhotoCapture}
-                    disabled={isUploadingPhoto}
-                    className="flex items-center gap-2"
-                  >
-                    <Camera size={16} />
-                    {isUploadingPhoto ? t('retailer.uploading') : t('retailer.takePhoto')}
-                  </Button>
-                  
-                  {(capturedPhotoPreview || retailerData.photo_url) && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-12 h-12 border rounded-lg overflow-hidden bg-muted">
-                        <img
-                          src={capturedPhotoPreview || retailerData.photo_url}
-                          alt="Retailer photo"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <span className="text-sm text-muted-foreground">{t('retailer.photoCaptured')}</span>
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">{t('retailer.photoDesc')}</p>
               </div>
 
               <div className="space-y-2">
@@ -1368,8 +1647,16 @@ export const AddRetailer = () => {
                       {connectivityStatus === 'offline' ? '📴 Offline' : '🌐 Online'} • {beats.length} beats
                     </Badge>
                   </div>
-                  <Select value={selectedBeat} onValueChange={(value) => setSelectedBeat(value)}>
-                    <SelectTrigger className="bg-background border-primary/30">
+                  <Select 
+                    value={selectedBeat} 
+                    onValueChange={(value) => {
+                      setSelectedBeat(value);
+                      if (validationErrors.beat) {
+                        setValidationErrors(prev => ({ ...prev, beat: '' }));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={cn("bg-background border-primary/30", validationErrors.beat && "border-destructive")}>
                       <SelectValue placeholder="Select a beat" />
                     </SelectTrigger>
                     <SelectContent className="bg-background border z-50">
@@ -1384,6 +1671,9 @@ export const AddRetailer = () => {
                       )}
                     </SelectContent>
                   </Select>
+                  {validationErrors.beat && (
+                    <p className="text-sm text-destructive">{validationErrors.beat}</p>
+                  )}
                   <p className="text-xs text-muted-foreground">Select which beat this retailer belongs to</p>
                 </div>
 
@@ -1456,9 +1746,17 @@ export const AddRetailer = () => {
               {/* Distributor Selection */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="font-semibold">Parent Type</Label>
-                  <Select value={retailerData.parentType} onValueChange={(value) => handleInputChange("parentType", value)}>
-                    <SelectTrigger className="bg-background">
+                  <Label className="font-semibold">Parent Type *</Label>
+                  <Select 
+                    value={retailerData.parentType} 
+                    onValueChange={(value) => {
+                      handleInputChange("parentType", value);
+                      if (validationErrors.parentType) {
+                        setValidationErrors(prev => ({ ...prev, parentType: '' }));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={cn("bg-background", validationErrors.parentType && "border-destructive")}>
                       <SelectValue placeholder="Select parent" />
                     </SelectTrigger>
                     <SelectContent className="bg-background border z-50">
@@ -1467,10 +1765,13 @@ export const AddRetailer = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {validationErrors.parentType && (
+                    <p className="text-sm text-destructive">{validationErrors.parentType}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="font-semibold">Select Distributor</Label>
+                  <Label className="font-semibold">Select Distributor {retailerData.parentType === "Distributor" && "*"}</Label>
                   {retailerData.parentType === "Distributor" ? (
                     <Select 
                       value={retailerData.selectedDistributors[0] || ""} 
@@ -1479,9 +1780,12 @@ export const AddRetailer = () => {
                         const distributor = allDistributors.find(d => d.id === value);
                         handleInputChange("selectedDistributors", [value]);
                         handleInputChange("parentName", distributor?.name || "");
+                        if (validationErrors.distributor) {
+                          setValidationErrors(prev => ({ ...prev, distributor: '' }));
+                        }
                       }}
                     >
-                      <SelectTrigger className="bg-background">
+                      <SelectTrigger className={cn("bg-background", validationErrors.distributor && "border-destructive")}>
                         <SelectValue placeholder="Select distributor" className="truncate" />
                       </SelectTrigger>
                       <SelectContent className="bg-background border z-50">
@@ -1518,6 +1822,9 @@ export const AddRetailer = () => {
                       onChange={(e) => handleInputChange("parentName", e.target.value)}
                       className="bg-background text-sm"
                     />
+                  )}
+                  {validationErrors.distributor && (
+                    <p className="text-sm text-destructive">{validationErrors.distributor}</p>
                   )}
                 </div>
               </div>

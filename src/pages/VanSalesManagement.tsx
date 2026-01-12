@@ -72,6 +72,22 @@ interface VanStockItem {
   price_without_gst: number;
 }
 
+interface OpeningGRNEdit {
+  id: string;
+  van_stock_id: string;
+  user_id: string;
+  user_name: string;
+  product_id: string;
+  product_name: string;
+  previous_qty: number;
+  edited_qty: number;
+  difference: number;
+  unit: string;
+  created_at: string;
+  stock_date: string;
+  edit_source: string;
+}
+
 export default function VanSalesManagement() {
   const navigate = useNavigate();
   const { userRole, user } = useAuth();
@@ -82,6 +98,7 @@ export default function VanSalesManagement() {
   const [editingVan, setEditingVan] = useState<Van | null>(null);
   // No date filter - show all van stock data for admin
   const [vanStockSummaries, setVanStockSummaries] = useState<VanStockSummary[]>([]);
+  const [openingGRNEdits, setOpeningGRNEdits] = useState<OpeningGRNEdit[]>([]);
   const [expandedVans, setExpandedVans] = useState<Set<string>>(new Set());
   
   // Hierarchical user filter (for managers)
@@ -126,6 +143,7 @@ export default function VanSalesManagement() {
     loadVans();
     loadUsers();
     loadVanStockSummaries();
+    loadOpeningGRNEdits();
   }, [userRole, navigate]);
 
   // Real-time subscription for van_stock and van_stock_items changes
@@ -135,12 +153,17 @@ export default function VanSalesManagement() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'van_stock' },
-        () => loadVanStockSummaries()
+        () => { loadVanStockSummaries(); loadOpeningGRNEdits(); }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'van_stock_items' },
         () => loadVanStockSummaries()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'van_stock_opening_edits' },
+        () => loadOpeningGRNEdits()
       )
       .subscribe();
 
@@ -148,6 +171,47 @@ export default function VanSalesManagement() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const loadOpeningGRNEdits = async () => {
+    try {
+      const { data: edits, error } = await supabase
+        .from('van_stock_opening_edits')
+        .select('*, van_stock(stock_date, user_id)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Get user names
+      const userIds = [...new Set(edits?.map(e => (e.van_stock as any)?.user_id).filter(Boolean) || [])];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      const profileMap: Record<string, string> = {};
+      profiles?.forEach(p => { profileMap[p.id] = p.full_name || 'Unknown'; });
+
+      const formattedEdits: OpeningGRNEdit[] = (edits || []).map(e => ({
+        id: e.id,
+        van_stock_id: e.van_stock_id,
+        user_id: (e.van_stock as any)?.user_id || e.user_id,
+        user_name: profileMap[(e.van_stock as any)?.user_id || e.user_id] || 'Unknown',
+        product_id: e.product_id,
+        product_name: e.product_name,
+        previous_qty: e.previous_qty,
+        edited_qty: e.edited_qty,
+        difference: e.difference,
+        unit: e.unit,
+        created_at: e.created_at,
+        stock_date: (e.van_stock as any)?.stock_date || '',
+        edit_source: (e as any).edit_source || 'load_previous',
+      }));
+
+      setOpeningGRNEdits(formattedEdits);
+    } catch (error) {
+      console.error('Error loading opening GRN edits:', error);
+    }
+  };
 
   const loadVans = async () => {
     // Fetch vans - assigned_user_id may not exist yet if migration pending
@@ -223,10 +287,11 @@ export default function VanSalesManagement() {
       const vanIds = [...new Set(stockData.map(s => s.van_id))];
       const userIds = [...new Set(stockData.map(s => s.user_id))];
 
-      const [{ data: vansData }, { data: profilesData }, { data: products }] = await Promise.all([
+      const [{ data: vansData }, { data: profilesData }, { data: products }, { data: variants }] = await Promise.all([
         supabase.from('vans').select('id, registration_number, make_model').in('id', vanIds),
         supabase.from('profiles').select('id, full_name').in('id', userIds),
-        supabase.from('products').select('id, rate')
+        supabase.from('products').select('id, name, rate'),
+        supabase.from('product_variants').select('id, variant_name, price')
       ]);
 
       const vansMap: Record<string, any> = {};
@@ -235,7 +300,25 @@ export default function VanSalesManagement() {
       const profilesMap: Record<string, any> = {};
       profilesData?.forEach(p => { profilesMap[p.id] = p; });
       
-      const productPriceMap: Record<string, number> = {};
+      // Build product price map from products table - by ID and by name
+      const productPriceMapById: Record<string, number> = {};
+      const productPriceMapByName: Record<string, number> = {};
+      products?.forEach(p => { 
+        productPriceMapById[p.id] = p.rate || 0;
+        if (p.name) {
+          productPriceMapByName[p.name.toUpperCase().trim()] = p.rate || 0;
+        }
+      });
+      
+      // Build variant price map - van_stock_items.product_id often refers to product_variants.id
+      const variantPriceMapById: Record<string, number> = {};
+      const variantPriceMapByName: Record<string, number> = {};
+      variants?.forEach(v => {
+        variantPriceMapById[v.id] = v.price || 0;
+        if (v.variant_name) {
+          variantPriceMapByName[v.variant_name.toUpperCase().trim()] = v.price || 0;
+        }
+      });
 
       // Get stock items for each van_stock
       const summaries: VanStockSummary[] = [];
@@ -255,8 +338,23 @@ export default function VanSalesManagement() {
           .eq('plan_date', stock.stock_date)
           .maybeSingle();
 
-        const stockItems: VanStockItem[] = (items || []).map((item: any) => {
-          const priceWithGST = productPriceMap[item.product_id] || 0;
+        // Deduplicate items by product_name (keep latest/aggregated)
+        const deduplicatedItemsMap = new Map<string, any>();
+        (items || []).forEach((item: any) => {
+          const existing = deduplicatedItemsMap.get(item.product_name);
+          if (!existing) {
+            deduplicatedItemsMap.set(item.product_name, item);
+          }
+          // Keep the first occurrence (they should have same qty anyway)
+        });
+
+        const stockItems: VanStockItem[] = Array.from(deduplicatedItemsMap.values()).map((item: any) => {
+          // Look up price: variant first (by ID, then name), then product (by ID, then name)
+          const variantPriceById = variantPriceMapById[item.product_id] || 0;
+          const variantPriceByName = variantPriceMapByName[(item.product_name || '').toUpperCase().trim()] || 0;
+          const productPriceById = productPriceMapById[item.product_id] || 0;
+          const productPriceByName = productPriceMapByName[(item.product_name || '').toUpperCase().trim()] || 0;
+          const priceWithGST = variantPriceById || variantPriceByName || productPriceById || productPriceByName;
           const priceWithoutGST = priceWithGST / 1.05; // Remove 5% GST
           return {
             id: item.id,
@@ -270,6 +368,9 @@ export default function VanSalesManagement() {
             price_without_gst: priceWithoutGST
           };
         });
+        
+        // Sort items by product_name alphabetically
+        stockItems.sort((a, b) => a.product_name.localeCompare(b.product_name));
 
         const totalStock = stockItems.reduce((sum, item) => sum + item.start_qty, 0);
         const totalOrdered = stockItems.reduce((sum, item) => sum + item.ordered_qty, 0);
@@ -440,6 +541,10 @@ export default function VanSalesManagement() {
             <TabsTrigger value="van-inventory" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
               Van Inventory & Stock
+              <span className="flex items-center gap-1 ml-1 px-1.5 py-0.5 bg-green-500/20 text-green-600 text-xs rounded-full">
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                Live
+              </span>
             </TabsTrigger>
           </TabsList>
 
@@ -679,7 +784,7 @@ export default function VanSalesManagement() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {vanStockSummaries.map((summary) => (
+                    {filteredVanStockSummaries.map((summary) => (
                       <Collapsible
                         key={summary.id}
                         open={expandedVans.has(summary.id)}
@@ -705,7 +810,7 @@ export default function VanSalesManagement() {
                                 </div>
                                 <div className="flex items-center gap-4">
                                   <div className="text-right text-sm">
-                                    <p className="text-muted-foreground">Stock: <span className="font-semibold text-foreground">{summary.total_stock}</span></p>
+                                    <p className="text-muted-foreground">Stock: <span className="font-semibold text-foreground">{(summary.total_stock / 1000).toFixed(2)} KG</span></p>
                                   </div>
                                   {expandedVans.has(summary.id) ? (
                                     <ChevronDown className="h-5 w-5 text-muted-foreground" />
@@ -720,35 +825,35 @@ export default function VanSalesManagement() {
                         <CollapsibleContent>
                           <Card className="mt-2 border-l-4 border-l-primary">
                             <CardContent className="p-4">
-                              {/* Summary Stats */}
+                              {/* Summary Stats - Display in KG */}
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                                 <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
                                   <div className="flex items-center gap-2 mb-1">
                                     <Package className="h-4 w-4 text-blue-600" />
                                     <span className="text-xs text-muted-foreground">Stock in Van</span>
                                   </div>
-                                  <p className="text-2xl font-bold text-blue-600">{summary.total_stock}</p>
+                                  <p className="text-2xl font-bold text-blue-600">{(summary.total_stock / 1000).toFixed(2)} <span className="text-sm font-normal">KG</span></p>
                                 </div>
                                 <div className="bg-amber-50 dark:bg-amber-950 p-3 rounded-lg">
                                   <div className="flex items-center gap-2 mb-1">
                                     <ShoppingCart className="h-4 w-4 text-amber-600" />
                                     <span className="text-xs text-muted-foreground">Ordered Qty</span>
                                   </div>
-                                  <p className="text-2xl font-bold text-amber-600">{summary.total_ordered}</p>
+                                  <p className="text-2xl font-bold text-amber-600">{(summary.total_ordered / 1000).toFixed(2)} <span className="text-sm font-normal">KG</span></p>
                                 </div>
                                 <div className="bg-purple-50 dark:bg-purple-950 p-3 rounded-lg">
                                   <div className="flex items-center gap-2 mb-1">
                                     <RotateCcw className="h-4 w-4 text-purple-600" />
                                     <span className="text-xs text-muted-foreground">Returned Qty</span>
                                   </div>
-                                  <p className="text-2xl font-bold text-purple-600">{summary.total_returned}</p>
+                                  <p className="text-2xl font-bold text-purple-600">{(summary.total_returned / 1000).toFixed(2)} <span className="text-sm font-normal">KG</span></p>
                                 </div>
                                 <div className="bg-green-50 dark:bg-green-950 p-3 rounded-lg">
                                   <div className="flex items-center gap-2 mb-1">
                                     <TrendingDown className="h-4 w-4 text-green-600" />
                                     <span className="text-xs text-muted-foreground">Left in Van</span>
                                   </div>
-                                  <p className="text-2xl font-bold text-green-600">{summary.closing_stock}</p>
+                                  <p className="text-2xl font-bold text-green-600">{(summary.closing_stock / 1000).toFixed(2)} <span className="text-sm font-normal">KG</span></p>
                                 </div>
                               </div>
 
@@ -759,7 +864,7 @@ export default function VanSalesManagement() {
                                 <span className="text-muted-foreground">Total KM: <span className="font-semibold text-primary">{summary.end_km > 0 ? summary.end_km - summary.start_km : '-'}</span></span>
                               </div>
 
-                              {/* Product Details */}
+                              {/* Product Details - Unified with Opening GRN Edits */}
                               <div className="border-t pt-4">
                                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                                   <Package className="h-4 w-4" /> Product Details
@@ -767,27 +872,89 @@ export default function VanSalesManagement() {
                                 {summary.items.length === 0 ? (
                                   <p className="text-sm text-muted-foreground">No products in this van stock</p>
                                 ) : (
-                                  <div className="space-y-2">
-                                    {summary.items.map((item) => (
-                                      <div key={item.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors">
-                                        <div className="flex-1">
-                                          <p className="font-medium">{item.product_name}</p>
-                                          <p className="text-sm text-muted-foreground">
-                                            ₹{item.price_without_gst.toFixed(2)} (excl. GST) • {item.unit}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                          <div className="text-right">
-                                            <p className="text-lg font-bold">{item.start_qty}</p>
-                                            <p className="text-xs text-muted-foreground">{item.unit}</p>
-                                          </div>
-                                          <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
-                                            <Edit className="h-4 w-4" />
-                                          </Button>
-                                        </div>
+                                  (() => {
+                                    // Get ALL edits for this summary (no longer using a Map which overwrites)
+                                    const editsForSummary = openingGRNEdits.filter(
+                                      e => e.stock_date === summary.stock_date && e.user_id === summary.user_id
+                                    );
+                                    
+                                    // Show edits first, then products without edits
+                                    const productsWithEdits = new Set(editsForSummary.map(e => e.product_id));
+                                    const productsWithoutEdits = summary.items.filter(item => !productsWithEdits.has(item.product_id));
+                                    
+                                    return (
+                                      <div className="border rounded-lg overflow-hidden bg-amber-50/50 dark:bg-amber-950/20">
+                                        <table className="w-full text-sm">
+                                          <thead className="bg-amber-100/50 dark:bg-amber-900/30">
+                                            <tr>
+                                              <th className="text-left p-3 font-medium">Product</th>
+                                              <th className="text-left p-3 font-medium">Source</th>
+                                              <th className="text-right p-3 font-medium">Previous Left</th>
+                                              <th className="text-right p-3 font-medium">Edited Qty</th>
+                                              <th className="text-right p-3 font-medium">Difference</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {/* First show all edits */}
+                                            {editsForSummary.map((edit) => {
+                                              const unit = edit.unit || 'grams';
+                                              const isGrams = unit.toLowerCase() === 'grams';
+                                              const prevDisplay = isGrams ? (edit.previous_qty / 1000).toFixed(2) : edit.previous_qty.toFixed(2);
+                                              const editDisplay = isGrams ? (edit.edited_qty / 1000).toFixed(2) : edit.edited_qty.toFixed(2);
+                                              const diffDisplay = isGrams ? (edit.difference / 1000).toFixed(2) : edit.difference.toFixed(2);
+                                              const displayUnit = isGrams ? 'KG' : unit;
+                                              
+                                              const sourceLabel = edit.edit_source === 'manual_edit' 
+                                                ? '✏️ Manual Edit' 
+                                                : '📦 Load Previous';
+                                              const sourceColor = edit.edit_source === 'manual_edit'
+                                                ? 'text-blue-600 dark:text-blue-400'
+                                                : 'text-purple-600 dark:text-purple-400';
+                                              
+                                              return (
+                                                <tr key={edit.id} className="border-t border-amber-200/50 dark:border-amber-800/50">
+                                                  <td className="p-3">
+                                                    <p className="font-medium">{edit.product_name}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      {new Date(edit.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                    </p>
+                                                  </td>
+                                                  <td className={`p-3 text-xs font-medium ${sourceColor}`}>
+                                                    {sourceLabel}
+                                                  </td>
+                                                  <td className="p-3 text-right font-medium">{prevDisplay} {displayUnit}</td>
+                                                  <td className="p-3 text-right font-medium">{editDisplay} {displayUnit}</td>
+                                                  <td className={`p-3 text-right font-medium ${
+                                                    edit.difference > 0 ? 'text-green-600' : 
+                                                    edit.difference < 0 ? 'text-red-600' : 
+                                                    'text-muted-foreground'
+                                                  }`}>
+                                                    {edit.difference > 0 ? '+' : ''}{diffDisplay} {displayUnit}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                            {/* Then show products without any edits */}
+                                            {productsWithoutEdits.map((item) => {
+                                              const startQty = item.start_qty / 1000; // Always grams to KG
+                                              return (
+                                                <tr key={item.id} className="border-t border-amber-200/50 dark:border-amber-800/50 opacity-60">
+                                                  <td className="p-3">
+                                                    <p className="font-medium">{item.product_name}</p>
+                                                    <p className="text-xs text-muted-foreground">₹{item.price_without_gst.toFixed(2)}/KG</p>
+                                                  </td>
+                                                  <td className="p-3 text-xs text-muted-foreground">—</td>
+                                                  <td className="p-3 text-right font-medium">{startQty.toFixed(2)} KG</td>
+                                                  <td className="p-3 text-right font-medium">{startQty.toFixed(2)} KG</td>
+                                                  <td className="p-3 text-right text-muted-foreground">0.00 KG</td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
                                       </div>
-                                    ))}
-                                  </div>
+                                    );
+                                  })()
                                 )}
                               </div>
                             </CardContent>

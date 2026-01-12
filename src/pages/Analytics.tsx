@@ -6,11 +6,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area
 } from "recharts";
-import { ArrowLeft, TrendingUp, TrendingDown, Users, ShoppingCart, Target, Heart, RefreshCw, Activity, Info, Calendar as CalendarIcon, Sparkles, AlertTriangle, MessageSquare, X } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Users, ShoppingCart, Target, Heart, RefreshCw, Activity, Info, Calendar as CalendarIcon, Sparkles, AlertTriangle, MessageSquare, X, MapPin, Store, Package, IndianRupee, CreditCard, Check, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,7 +29,14 @@ import {
   TeamStatusCard,
   CurrentActivitiesCard,
   AdditionsCard,
-  LeaderboardCard
+  LeaderboardCard,
+  BusinessSummaryCard,
+  BeatDetailsDialog,
+  RetailerDetailsDialog,
+  OrderDetailsDialog,
+  ProductBreakdownDialog,
+  PendingPaymentsDialog,
+  useBusinessMetrics
 } from "@/components/analytics";
 
 interface UserProfile {
@@ -39,7 +49,17 @@ const Analytics = () => {
   const navigate = useNavigate();
   const [hasLiked, setHasLiked] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [userSelectOpen, setUserSelectOpen] = useState(false);
+  const [dashboardDateRange, setDashboardDateRange] = useState<{ from: Date; to: Date }>({
+    from: startOfMonth(new Date()),
+    to: new Date()
+  });
+  const [dashboardDateOpen, setDashboardDateOpen] = useState(false);
   const [users, setUsers] = useState<UserProfile[]>([]);
+
+  const normalizeName = (name: string | null | undefined) => (name ?? '').trim().toUpperCase();
+
   const [kpiPeriod, setKpiPeriod] = useState<string>('current_month');
   const [kpiDateRange, setKpiDateRange] = useState<{ from: Date; to: Date }>({
     from: startOfMonth(new Date()),
@@ -52,6 +72,42 @@ const Analytics = () => {
     from: startOfWeek(new Date()),
     to: endOfWeek(new Date())
   });
+  
+  // Dialog states for business metrics
+  const [showBeatDetails, setShowBeatDetails] = useState(false);
+  const [showRetailerDetails, setShowRetailerDetails] = useState(false);
+  const [showOrderDetails, setShowOrderDetails] = useState(false);
+  const [showProductBreakdown, setShowProductBreakdown] = useState(false);
+  const [showPendingPayments, setShowPendingPayments] = useState(false);
+  
+  // Business metrics hook
+  const {
+    summary: businessSummary,
+    isLoading: businessLoading,
+    fetchSummary: fetchBusinessSummary,
+    beatDetails,
+    retailerDetails,
+    orderDetails,
+    productDetails,
+    pendingPaymentDetails,
+    detailsLoading,
+    fetchBeatDetails,
+    fetchRetailerDetails,
+    fetchOrderDetails,
+    fetchProductDetails,
+    fetchPendingPaymentDetails
+  } = useBusinessMetrics();
+
+  // Auto-refresh business metrics when filters change
+  useEffect(() => {
+    // Get user names for selected user IDs to use with RPC
+    const selectedUserNames = selectedUserIds
+      .map(id => users.find(u => u.id === id)?.full_name)
+      .filter((name): name is string => !!name);
+    
+    fetchBusinessSummary(selectedUserIds, dashboardDateRange, selectedUserNames);
+  }, [selectedUserIds, dashboardDateRange, fetchBusinessSummary, users]);
+
   const [kpiData, setKpiData] = useState({
     plannedCalls: 0,
     productiveCalls: 0,
@@ -1070,28 +1126,150 @@ const Analytics = () => {
         </div>
 
         <div className="p-4 -mt-4 relative z-10">
-          {/* User Filter */}
+          {/* Multi-Select User Filter with Date Range */}
           <Card className="mb-4 shadow-lg">
             <CardContent className="p-4">
-              <div className="flex items-center gap-4">
-                <label className="text-sm font-medium">Filter by User:</label>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger className="w-[250px]">
-                    <SelectValue placeholder="All Users" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Users</SelectItem>
-                    {users.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.full_name || 'Unknown User'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="sm" onClick={fetchDashboardData}>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Multi-select User Dropdown */}
+                <Popover open={userSelectOpen} onOpenChange={setUserSelectOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="min-w-[200px] justify-between">
+                      <div className="flex items-center gap-2">
+                        <Users size={16} />
+                        <span>
+                          {selectedUserIds.length === 0 
+                            ? 'All Users' 
+                            : `${selectedUserIds.length} User${selectedUserIds.length > 1 ? 's' : ''} Selected`}
+                        </span>
+                      </div>
+                      <ChevronDown size={16} />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <div className="p-2 border-b">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="w-full justify-start text-xs"
+                        onClick={() => {
+                          setSelectedUserIds([]);
+                          setUserSelectOpen(false);
+                        }}
+                      >
+                        <X size={14} className="mr-2" />
+                        Clear Selection (All Users)
+                      </Button>
+                    </div>
+                    <ScrollArea className="h-[250px]">
+                      <div className="p-2 space-y-1">
+                        {users.map((user) => (
+                          <div
+                            key={user.id}
+                            className="flex items-center gap-2 p-2 hover:bg-muted rounded-md cursor-pointer"
+                            onClick={() => {
+                              const groupIds = users
+                                .filter(u => normalizeName(u.full_name) === normalizeName(user.full_name))
+                                .map(u => u.id);
+
+                              setSelectedUserIds(prev => {
+                                const hasAll = groupIds.every(id => prev.includes(id));
+                                return hasAll
+                                  ? prev.filter(id => !groupIds.includes(id))
+                                  : Array.from(new Set([...prev, ...groupIds]));
+                              });
+                            }}
+                          >
+                            <Checkbox 
+                              checked={selectedUserIds.includes(user.id)}
+                              className="pointer-events-none"
+                            />
+                            <span className="text-sm truncate">{user.full_name || 'Unknown'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                    <div className="p-2 border-t">
+                      <Button 
+                        size="sm" 
+                        className="w-full"
+                        onClick={() => setUserSelectOpen(false)}
+                      >
+                        <Check size={14} className="mr-2" />
+                        Apply
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Date Range Picker */}
+                <Popover open={dashboardDateOpen} onOpenChange={setDashboardDateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="min-w-[220px] justify-start">
+                      <CalendarIcon size={16} className="mr-2" />
+                      {format(dashboardDateRange.from, 'MMM dd')} - {format(dashboardDateRange.to, 'MMM dd, yyyy')}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="range"
+                      selected={{ from: dashboardDateRange.from, to: dashboardDateRange.to }}
+                      onSelect={(range: any) => {
+                        if (range?.from && range?.to) {
+                          setDashboardDateRange({ from: range.from, to: range.to });
+                          setDashboardDateOpen(false);
+                        }
+                      }}
+                      numberOfMonths={2}
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </PopoverContent>
+                </Popover>
+
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => {
+                    fetchDashboardData();
+                    const selectedUserNames = selectedUserIds
+                      .map(id => users.find(u => u.id === id)?.full_name)
+                      .filter((name): name is string => !!name);
+                    fetchBusinessSummary(selectedUserIds, dashboardDateRange, selectedUserNames);
+                  }}
+                >
                   <RefreshCw size={16} className="mr-2" />
                   Refresh
                 </Button>
+              </div>
+
+              {/* Selected Filters Summary */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground font-medium">Showing:</span>
+                {selectedUserIds.length === 0 ? (
+                  <Badge variant="secondary" className="text-xs">All Users</Badge>
+                ) : (
+                  <>
+                    {selectedUserIds.slice(0, 3).map(id => {
+                      const user = users.find(u => u.id === id);
+                      return (
+                        <Badge key={id} variant="secondary" className="text-xs gap-1">
+                          {user?.full_name || 'Unknown'}
+                          <X 
+                            size={12} 
+                            className="cursor-pointer hover:text-destructive"
+                            onClick={() => setSelectedUserIds(prev => prev.filter(uid => uid !== id))}
+                          />
+                        </Badge>
+                      );
+                    })}
+                    {selectedUserIds.length > 3 && (
+                      <Badge variant="outline" className="text-xs">+{selectedUserIds.length - 3} more</Badge>
+                    )}
+                  </>
+                )}
+                <span className="text-xs text-muted-foreground">|</span>
+                <Badge variant="outline" className="text-xs">
+                  {format(dashboardDateRange.from, 'MMM dd')} - {format(dashboardDateRange.to, 'MMM dd, yyyy')}
+                </Badge>
               </div>
             </CardContent>
           </Card>
@@ -1341,158 +1519,78 @@ const Analytics = () => {
 
             {/* Progress Tab - Dashboard View */}
             <TabsContent value="progress" className="space-y-4">
-              {/* Top Row - Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <AttendanceCard {...dashboardData.attendance} />
-                <ActivitiesCard {...dashboardData.activities} />
-                <ExpensesCard {...dashboardData.expenses} />
-                <ComplianceCard {...dashboardData.compliance} />
-              </div>
-
-              {/* Middle Row - Team, Activities, Additions */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <TeamStatusCard members={dashboardData.teamMembers} />
-                <CurrentActivitiesCard activities={dashboardData.currentActivities as any} />
-                <div className="space-y-4">
-                  <AdditionsCard {...dashboardData.additions} />
-                  <LeaderboardCard members={dashboardData.leaderboard} />
-                </div>
-              </div>
-
-              {/* Period Analysis */}
-              <Card className="shadow-lg">
-                <CardHeader>
+              {/* Total Order Value Banner */}
+              <Card className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-lg">
+                <CardContent className="p-6">
                   <div className="flex items-center justify-between">
-                    <CardTitle>Period Analysis</CardTitle>
-                    <div className="flex gap-2">
-                      <Button
-                        variant={selectedPeriod === 'week' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => handlePeriodChange('week')}
-                      >
-                        Week
-                      </Button>
-                      <Button
-                        variant={selectedPeriod === 'month' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => handlePeriodChange('month')}
-                      >
-                        Month
-                      </Button>
-                      <Button
-                        variant={selectedPeriod === 'quarter' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => handlePeriodChange('quarter')}
-                      >
-                        Quarter
-                      </Button>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant={selectedPeriod === 'custom' ? 'default' : 'outline'}
-                            size="sm"
-                            className={cn("justify-start text-left font-normal")}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            Custom
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="end">
-                          <Calendar
-                            mode="range"
-                            selected={{ from: dateRange.from, to: dateRange.to }}
-                            onSelect={(range: any) => {
-                              if (range?.from && range?.to) {
-                                setSelectedPeriod('custom');
-                                setDateRange({ from: range.from, to: range.to });
-                              }
-                            }}
-                            numberOfMonths={2}
-                            className={cn("p-3 pointer-events-auto")}
-                          />
-                        </PopoverContent>
-                      </Popover>
+                    <div>
+                      <p className="text-sm opacity-90">Total Order Value</p>
+                      <p className="text-3xl md:text-4xl font-bold">
+                        ₹{(businessSummary.totalRevenue / 100000).toFixed(2)} Lac
+                      </p>
+                      <p className="text-xs opacity-75 mt-1">
+                        {format(dashboardDateRange.from, 'MMM dd')} - {format(dashboardDateRange.to, 'MMM dd, yyyy')}
+                      </p>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <p className="text-sm opacity-90">{businessSummary.totalOrders} Orders</p>
+                      <p className="text-sm opacity-90">{Math.round(businessSummary.totalKg).toLocaleString()} Units</p>
                     </div>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    {format(dateRange.from, 'MMM dd, yyyy')} - {format(dateRange.to, 'MMM dd, yyyy')}
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left p-2 text-sm font-medium">Date</th>
-                          <th className="text-left p-2 text-sm font-medium">Day</th>
-                          <th className="text-left p-2 text-sm font-medium">Beat</th>
-                          <th className="text-right p-2 text-sm font-medium">Planned</th>
-                          <th className="text-right p-2 text-sm font-medium">Completed</th>
-                          <th className="text-right p-2 text-sm font-medium">Productive</th>
-                          <th className="text-right p-2 text-sm font-medium">Order Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {weeklyProgress.map((day: any, index: number) => (
-                          <tr key={index} className="border-b hover:bg-muted/50">
-                            <td className="p-2 text-sm">{format(new Date(day.date), 'MMM dd')}</td>
-                            <td className="p-2 text-sm">{day.day}</td>
-                            <td className="p-2 text-sm">{day.beatName}</td>
-                            <td className="p-2 text-sm text-right">{day.plannedVisits}</td>
-                            <td className="p-2 text-sm text-right">{day.completedVisits}</td>
-                            <td className="p-2 text-sm text-right text-primary font-semibold">{day.productiveVisits}</td>
-                            <td className="p-2 text-sm text-right font-semibold">₹{day.orderValue.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                        {weeklyProgress.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="p-4 text-center text-muted-foreground">
-                              No data available for selected period
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
                 </CardContent>
               </Card>
 
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>Productivity Chart</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={weeklyProgress}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={(value) => format(new Date(value), 'MMM dd')} />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="plannedVisits" fill="#94a3b8" name="Planned" />
-                      <Bar dataKey="completedVisits" fill="#3b82f6" name="Completed" />
-                      <Bar dataKey="productiveVisits" fill="#10b981" name="Productive" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
+              {/* Business Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <BusinessSummaryCard
+                  title="Total Beats"
+                  value={businessSummary.totalBeats}
+                  icon={<MapPin size={18} className="text-primary" />}
+                  onClick={() => { fetchBeatDetails(selectedUserIds, dashboardDateRange); setShowBeatDetails(true); }}
+                  isLoading={businessLoading}
+                />
+                <BusinessSummaryCard
+                  title="Total Retailers"
+                  value={businessSummary.totalRetailers}
+                  icon={<Store size={18} className="text-blue-600" />}
+                  iconBgClass="bg-blue-500/10"
+                  onClick={() => { fetchRetailerDetails(selectedUserIds, dashboardDateRange); setShowRetailerDetails(true); }}
+                  isLoading={businessLoading}
+                />
+                <BusinessSummaryCard
+                  title="Total Orders"
+                  value={businessSummary.totalOrders}
+                  icon={<ShoppingCart size={18} className="text-green-600" />}
+                  iconBgClass="bg-green-500/10"
+                  onClick={() => { fetchOrderDetails(selectedUserIds, dashboardDateRange); setShowOrderDetails(true); }}
+                  isLoading={businessLoading}
+                />
+                <BusinessSummaryCard
+                  title="Total Qty"
+                  value={`${businessSummary.totalKg.toFixed(1)} KG${businessSummary.totalPieces > 0 ? ` + ${businessSummary.totalPieces} pcs` : ''}`}
+                  icon={<Package size={18} className="text-orange-600" />}
+                  iconBgClass="bg-orange-500/10"
+                  onClick={() => { fetchProductDetails(selectedUserIds, dashboardDateRange); setShowProductBreakdown(true); }}
+                  isLoading={businessLoading}
+                />
+                <BusinessSummaryCard
+                  title="Total Revenue"
+                  value={`₹${(businessSummary.totalRevenue / 1000).toFixed(0)}K`}
+                  icon={<IndianRupee size={18} className="text-purple-600" />}
+                  iconBgClass="bg-purple-500/10"
+                  onClick={() => { fetchOrderDetails(selectedUserIds, dashboardDateRange); setShowOrderDetails(true); }}
+                  isLoading={businessLoading}
+                />
+                <BusinessSummaryCard
+                  title="Pending Payments"
+                  value={`₹${(businessSummary.pendingPayments / 1000).toFixed(0)}K`}
+                  icon={<CreditCard size={18} className="text-red-600" />}
+                  iconBgClass="bg-red-500/10"
+                  onClick={() => { fetchPendingPaymentDetails(selectedUserIds, dashboardDateRange); setShowPendingPayments(true); }}
+                  isLoading={businessLoading}
+                />
+              </div>
 
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>Order Value Trend</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={weeklyProgress}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tickFormatter={(value) => format(new Date(value), 'MMM dd')} />
-                      <YAxis />
-                      <Tooltip formatter={(value: any) => `₹${value.toLocaleString()}`} />
-                      <Area type="monotone" dataKey="orderValue" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.3} name="Order Value" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
             </TabsContent>
 
             {/* Products Tab */}
@@ -2418,6 +2516,48 @@ const Analytics = () => {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {/* Detail Dialogs */}
+          <BeatDetailsDialog
+            open={showBeatDetails}
+            onOpenChange={setShowBeatDetails}
+            selectedUsers={selectedUserIds.length > 0 ? selectedUserIds.map(id => users.find(u => u.id === id)?.full_name || 'Unknown') : ['All Users']}
+            dateRange={dashboardDateRange}
+            data={beatDetails}
+            isLoading={detailsLoading}
+          />
+          <RetailerDetailsDialog
+            open={showRetailerDetails}
+            onOpenChange={setShowRetailerDetails}
+            selectedUsers={selectedUserIds.length > 0 ? selectedUserIds.map(id => users.find(u => u.id === id)?.full_name || 'Unknown') : ['All Users']}
+            dateRange={dashboardDateRange}
+            data={retailerDetails}
+            isLoading={detailsLoading}
+          />
+          <OrderDetailsDialog
+            open={showOrderDetails}
+            onOpenChange={setShowOrderDetails}
+            selectedUsers={selectedUserIds.length > 0 ? selectedUserIds.map(id => users.find(u => u.id === id)?.full_name || 'Unknown') : ['All Users']}
+            dateRange={dashboardDateRange}
+            data={orderDetails}
+            isLoading={detailsLoading}
+          />
+          <ProductBreakdownDialog
+            open={showProductBreakdown}
+            onOpenChange={setShowProductBreakdown}
+            selectedUsers={selectedUserIds.length > 0 ? selectedUserIds.map(id => users.find(u => u.id === id)?.full_name || 'Unknown') : ['All Users']}
+            dateRange={dashboardDateRange}
+            data={productDetails}
+            isLoading={detailsLoading}
+          />
+          <PendingPaymentsDialog
+            open={showPendingPayments}
+            onOpenChange={setShowPendingPayments}
+            selectedUsers={selectedUserIds.length > 0 ? selectedUserIds.map(id => users.find(u => u.id === id)?.full_name || 'Unknown') : ['All Users']}
+            dateRange={dashboardDateRange}
+            data={pendingPaymentDetails}
+            isLoading={detailsLoading}
+          />
         </div>
       </div>
     </Layout>

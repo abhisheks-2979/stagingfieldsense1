@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Layout } from "@/components/Layout";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShoppingCart, Package, Gift, ArrowLeft, Plus, Check, Grid3X3, Table, Minus, ChevronDown, ChevronRight, Search, X, XCircle, UserX, DoorClosed, Camera, RotateCcw, Star, Sparkles, Target, MessageSquare, Mic } from "lucide-react";
+import { ShoppingCart, Package, Gift, ArrowLeft, Plus, Check, Grid3X3, Table, Minus, ChevronDown, ChevronRight, Search, X, XCircle, UserX, DoorClosed, Camera, RotateCcw, Star, Sparkles, Target, MessageSquare, Mic, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { hasAttendanceTodayOfflineSupport } from "@/utils/attendanceUtils";
+import { offlineStorage, STORES } from "@/lib/offlineStorage";
 import { VoiceOrderAssistant } from "@/components/VoiceOrderAssistant";
+import { SmartBasketButton } from "@/components/SmartBasketButton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
@@ -26,6 +29,16 @@ import { WifiOff, Wifi, MapPin, CheckCircle2, AlertTriangle } from "lucide-react
 import { useRetailerVisitTracking } from "@/hooks/useRetailerVisitTracking";
 import { RetailerVisitDetailsModal } from "@/components/RetailerVisitDetailsModal";
 import { getLocalTodayDate } from "@/utils/dateUtils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Product {
   id: string;
@@ -34,6 +47,7 @@ interface Product {
   rate: number;
   unit: string;
   base_unit?: string;
+  hsn_code?: string;
   hasScheme?: boolean;
   schemeDetails?: string;
   closingStock?: number;
@@ -62,6 +76,7 @@ interface GridProduct {
   unit: string;
   base_unit?: string;
   conversion_factor?: number;
+  hsn_code?: string;
   hasScheme?: boolean;
   schemeDetails?: string;
   schemeConditionQuantity?: number;
@@ -85,6 +100,7 @@ interface ProductVariant {
   discount_amount: number;
   discount_percentage: number;
   is_active: boolean;
+  hsn_code?: string;
   is_focused_product?: boolean;
   focused_type?: string | null;
   focused_due_date?: string | null;
@@ -164,7 +180,8 @@ export const OrderEntry = () => {
     };
   }, []);
 
-  const isActuallyOnline = connectivity === "online";
+  // Allow features to work when online OR still checking (optimistic)
+  const isActuallyOnline = connectivity === "online" || connectivity === "checking";
 
   // getLocalDateString is now imported from @/utils/dateUtils as getLocalTodayDate
   const getLocalDateString = getLocalTodayDate;
@@ -320,9 +337,18 @@ export const OrderEntry = () => {
   // Retailer visit tracking states
   const [retailerLat, setRetailerLat] = useState<number | undefined>(undefined);
   const [retailerLng, setRetailerLng] = useState<number | undefined>(undefined);
+  const [retailerBeatId, setRetailerBeatId] = useState<string | undefined>(undefined);
   const [showVisitDetailsModal, setShowVisitDetailsModal] = useState(false);
   const [hasTrackedVisit, setHasTrackedVisit] = useState(false);
   const [isSettingLocation, setIsSettingLocation] = useState(false);
+
+  // Global check-in capture: track if first interaction has been recorded
+  const hasRecordedFirstInteraction = useRef(false);
+
+  // Attendance gate state - block order entry until attendance is marked
+  const [attendanceChecked, setAttendanceChecked] = useState(false);
+  const [hasAttendance, setHasAttendance] = useState(false);
+  const [checkingAttendance, setCheckingAttendance] = useState(true);
 
   // Function to set retailer location from current GPS
   const setRetailerLocation = async () => {
@@ -395,6 +421,7 @@ export const OrderEntry = () => {
     startTracking,
     endTracking,
     recordActivity,
+    recordAction,
     recheckLocation
   } = useRetailerVisitTracking({
     retailerId: validRetailerId || '',
@@ -404,6 +431,51 @@ export const OrderEntry = () => {
     userId: userId || '',
     selectedDate: getLocalDateString()
   });
+
+  // Check attendance on mount - OFFLINE FIRST
+  useEffect(() => {
+    const checkAttendance = async () => {
+      if (!userId) {
+        setCheckingAttendance(false);
+        return;
+      }
+      
+      try {
+        // Use offline-first check - checks Supabase first, falls back to cache
+        const hasMarkedAttendance = await hasAttendanceTodayOfflineSupport(userId);
+        setHasAttendance(hasMarkedAttendance);
+        setAttendanceChecked(true);
+      } catch (error) {
+        console.error('Error checking attendance:', error);
+        // If check fails, also check offline storage directly as fallback
+        try {
+          await offlineStorage.init();
+          const cachedAttendance = await offlineStorage.getAll(STORES.ATTENDANCE);
+          const todayStr = new Date().toISOString().split('T')[0];
+          const hasLocal = cachedAttendance.some(
+            (a: any) => a.user_id === userId && a.date === todayStr
+          );
+          setHasAttendance(hasLocal);
+        } catch {
+          setHasAttendance(false);
+        }
+        setAttendanceChecked(true);
+      } finally {
+        setCheckingAttendance(false);
+      }
+    };
+    
+    checkAttendance();
+  }, [userId]);
+
+  // Global click handler - ANY click/touch inside Order Entry page triggers check-in
+  const handlePageInteraction = useCallback(() => {
+    if (!hasRecordedFirstInteraction.current && userId) {
+      hasRecordedFirstInteraction.current = true;
+      console.log('📍 First page interaction - capturing check-in');
+      recordAction('order').catch((err) => console.log('Check-in error (non-fatal):', err));
+    }
+  }, [userId, recordAction]);
   
   // Fetch retailer coordinates - CACHE FIRST, non-blocking
   useEffect(() => {
@@ -420,6 +492,9 @@ export const OrderEntry = () => {
           setRetailerLat(cachedRetailer.latitude);
           setRetailerLng(cachedRetailer.longitude);
         }
+        if (cachedRetailer?.beat_id) {
+          setRetailerBeatId(cachedRetailer.beat_id);
+        }
       } catch (cacheError) {
         DEV_LOG && console.log('📍 Cache read failed (non-critical):', cacheError);
       }
@@ -429,13 +504,18 @@ export const OrderEntry = () => {
         const fetchFromNetwork = () => {
           supabase
             .from('retailers')
-            .select('latitude, longitude')
+            .select('latitude, longitude, beat_id')
             .eq('id', validRetailerId)
             .single()
             .then(({ data, error }) => {
-              if (!error && data?.latitude && data?.longitude) {
-                setRetailerLat(data.latitude);
-                setRetailerLng(data.longitude);
+              if (!error && data) {
+                if (data.latitude && data.longitude) {
+                  setRetailerLat(data.latitude);
+                  setRetailerLng(data.longitude);
+                }
+                if (data.beat_id) {
+                  setRetailerBeatId(data.beat_id);
+                }
               }
             });
         };
@@ -928,6 +1008,29 @@ export const OrderEntry = () => {
     return 0;
   };
 
+  // Helper function to get applied scheme name for a product
+  const getAppliedSchemeName = (productId: string): string => {
+    const productSchemes = schemes.filter(s => 
+      (s.product_id === productId || 
+       (s.target_product_ids && s.target_product_ids.includes(productId))) &&
+      s.is_active &&
+      (!s.start_date || new Date(s.start_date) <= new Date()) &&
+      (!s.end_date || new Date(s.end_date) >= new Date())
+    );
+    
+    if (productSchemes.length === 0) return '';
+    
+    // Return the first applicable scheme name with discount info
+    const scheme = productSchemes[0];
+    if (scheme.discount_percentage) {
+      return `${scheme.name} (${scheme.discount_percentage}% off)`;
+    }
+    if (scheme.discount_amount) {
+      return `${scheme.name} (₹${scheme.discount_amount} off)`;
+    }
+    return scheme.name;
+  };
+
   // Helper function to get scheme description
   const getSchemeDescription = (scheme: any) => {
     const conditionText = scheme.quantity_condition_type === 'more_than' ? `Buy ${scheme.condition_quantity}+ ${scheme.scheme_type === 'buy_get' ? 'items' : 'units'}` : `Buy exactly ${scheme.condition_quantity} ${scheme.scheme_type === 'buy_get' ? 'items' : 'units'}`;
@@ -1147,6 +1250,8 @@ export const OrderEntry = () => {
       unit: selectedUnit,
       // Store base_unit for correct KG 2 gram conversion in cart and invoice
       base_unit: (product as GridProduct).base_unit || displayProduct.base_unit || displayProduct.unit,
+      // Include HSN code from product for invoice
+      hsn_code: (displayProduct as any).hsn_code || (product as any).hsn_code || '',
       quantity,
       total: finalTotal,
       closingStock: closingStocks[displayProduct.id] || displayProduct.closingStock
@@ -1235,7 +1340,23 @@ export const OrderEntry = () => {
     });
   };
 
-  // Function to clear all cached form data
+  // State for delete confirmation dialog
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Function to clear all cached form data (with confirmation)
+  const handleDeleteClick = () => {
+    // Check if there's anything to clear
+    const hasItems = cart.length > 0 || Object.keys(quantities).length > 0;
+    if (hasItems) {
+      setShowDeleteConfirm(true);
+    } else {
+      toast({
+        title: "Nothing to clear",
+        description: "Cart is already empty"
+      });
+    }
+  };
+
   const clearAllFormData = () => {
     const quantityKey = activeStorageKey.replace('order_cart:', 'order_quantities:');
     const variantKey = activeStorageKey.replace('order_cart:', 'order_variants:');
@@ -1252,6 +1373,12 @@ export const OrderEntry = () => {
     setQuantities({});
     setSelectedVariants({});
     setClosingStocks({});
+    setShowDeleteConfirm(false);
+    
+    toast({
+      title: "Order cleared",
+      description: "All items have been removed from the order"
+    });
     console.log('All form data cleared');
   };
   const getTotalItems = () => {
@@ -1493,6 +1620,9 @@ export const OrderEntry = () => {
       description: `Cart updated with ${items.length} item(s)`
     });
 
+    // Record proceed to cart action for time tracking
+    recordAction('proceed_to_cart').catch(() => {});
+
     // Navigate to cart with current parameters
     const params = new URLSearchParams(searchParams);
     navigate(`/cart?${params.toString()}`);
@@ -1597,22 +1727,71 @@ export const OrderEntry = () => {
     setFilteredSchemes(productSchemes);
     setShowSchemeModal(true);
   };
+
+  // Show loading while checking attendance
+  if (checkingAttendance) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2 text-muted-foreground">Checking attendance...</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show attendance required dialog if not marked
+  if (attendanceChecked && !hasAttendance) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-screen p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-orange-600">
+                <AlertCircle className="h-6 w-6" />
+                Attendance Required
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground">
+                You need to mark your attendance before placing orders. 
+                Please start your day first.
+              </p>
+              <div className="flex flex-col gap-2">
+                <Button 
+                  onClick={() => navigate('/attendance')}
+                  className="w-full"
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  Mark Attendance
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => navigate(-1)}
+                  className="w-full"
+                >
+                  Go Back
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </Layout>
+    );
+  }
+
   return <Layout>
-    <div className="min-h-screen bg-background pb-20 pt-2">
+    <div 
+      className="min-h-screen bg-background pb-20 pt-2"
+      onClick={handlePageInteraction}
+      onTouchStart={handlePageInteraction}
+    >
       {/* Page Header - Fixed layout with stable positioning */}
       <div className="w-full px-2 sm:px-4 py-2 sm:py-3">
         <Card className="shadow-card bg-gradient-primary text-primary-foreground">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-2 sm:px-3 py-2 sm:py-3 gap-2">
             {/* Left side - Back button and Title */}
             <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0 overflow-hidden">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => navigate(-1)} 
-                className="text-primary-foreground hover:bg-primary-foreground/20 h-8 w-8 shrink-0"
-              >
-                <ArrowLeft size={18} />
-              </Button>
               <div className="min-w-0 flex-1 overflow-hidden">
                 <CardTitle className="text-sm sm:text-base font-medium leading-tight truncate">
                   {isPhoneOrder ? t('order.phoneOrderEntry') : t('order.orderEntry')}
@@ -1635,7 +1814,7 @@ export const OrderEntry = () => {
               {/* Right side - Clear, Cart and Current value */}
               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 {/* Clear Form Button */}
-                <Button variant="ghost" onClick={clearAllFormData} className="text-primary-foreground hover:bg-primary-foreground/20 h-auto p-1 sm:p-1.5 flex flex-col items-center gap-0 min-w-[40px] sm:min-w-[45px]" title="Clear all form data">
+                <Button variant="ghost" onClick={handleDeleteClick} className="text-primary-foreground hover:bg-primary-foreground/20 h-auto p-1 sm:p-1.5 flex flex-col items-center gap-0 min-w-[40px] sm:min-w-[45px]" title="Clear all form data">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="sm:w-[14px] sm:h-[14px]">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                     <line x1="10" y1="11" x2="10" y2="17" />
@@ -1685,12 +1864,9 @@ export const OrderEntry = () => {
                   variant={orderMode === "grid" ? "default" : "outline"} 
                   onClick={() => {
                     setOrderMode("grid");
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className="flex-1 h-7 text-xs" 
                   size="sm"
                 >
@@ -1701,12 +1877,9 @@ export const OrderEntry = () => {
                   variant={orderMode === "table" ? "default" : "outline"} 
                   onClick={() => {
                     setOrderMode("table");
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className="flex-1 h-7 text-xs" 
                   size="sm"
                 >
@@ -1717,12 +1890,9 @@ export const OrderEntry = () => {
                   variant="outline" 
                   onClick={() => {
                     setShowImageCapture(true);
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className="flex-1 h-7 text-xs" 
                   size="sm" 
                   title="AI Stock Capture"
@@ -1732,8 +1902,8 @@ export const OrderEntry = () => {
                 </Button>
               </div>
               
-              {/* Row 2: Voice Order (Full Width) */}
-              <div className="flex">
+              {/* Row 2: Voice Order + Smart Basket */}
+              <div className="flex gap-1.5">
                 <VoiceOrderAssistant
                   products={cachedProducts.map(p => ({
                     id: p.id,
@@ -1768,6 +1938,33 @@ export const OrderEntry = () => {
                   disabled={!isActuallyOnline || cachedProducts.length === 0}
                   className="flex-1"
                 />
+                <SmartBasketButton
+                  retailerId={validRetailerId || ''}
+                  beatId={retailerBeatId}
+                  onAutoFillProducts={(results) => {
+                    if (orderMode === "table" && tableFormRef.current) {
+                      tableFormRef.current.applyVoiceAutoFill(results);
+                    } else {
+                      results.forEach(result => {
+                        handleQuantityChange(result.productId, result.quantity);
+                        if (result.unit) {
+                          setSelectedUnits(prev => ({
+                            ...prev,
+                            [result.productId]: result.unit
+                          }));
+                        }
+                      });
+                      if (results.length > 0) {
+                        toast({
+                          title: `✓ ${results.length} product${results.length > 1 ? 's' : ''} auto-filled`,
+                          description: results.map(r => `${r.productName}: ${r.quantity} ${r.unit}`).join(', '),
+                        });
+                      }
+                    }
+                  }}
+                  disabled={!isActuallyOnline || !validRetailerId}
+                  className="flex-1"
+                />
               </div>
               
               {/* Row 3: Return, No Order, Competition */}
@@ -1776,12 +1973,9 @@ export const OrderEntry = () => {
                   variant={orderMode === "return-stock" ? "default" : "outline"} 
                   onClick={() => {
                     setOrderMode("return-stock");
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className="flex-1 h-7 text-xs" 
                   size="sm"
                 >
@@ -1792,12 +1986,9 @@ export const OrderEntry = () => {
                   variant={orderMode === "no-order" ? "default" : "outline"} 
                   onClick={() => {
                     setOrderMode("no-order");
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className="flex-1 h-7 text-xs" 
                   size="sm"
                 >
@@ -1808,12 +1999,9 @@ export const OrderEntry = () => {
                   variant={orderMode === "competition" ? "default" : "outline"} 
                   onClick={() => {
                     setOrderMode("competition");
-                    if (!hasTrackedVisit && userId) {
-                      startTracking('order', isPhoneOrder).then(() => setHasTrackedVisit(true));
-                    } else {
-                      recordActivity();
-                    }
-                  }} 
+                    // Record action for time tracking - first call = check-in, subsequent = check-out update
+                    recordAction('order').catch(() => {});
+                  }}
                   className={`flex-1 h-7 text-xs ${hasCompetitionData ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
                   size="sm"
                 >
@@ -1939,17 +2127,11 @@ export const OrderEntry = () => {
                   if (noOrderSubmitting) return;
                   setNoOrderSubmitting(true);
                   
-                  // Check online status at click time (more reliable than hook state)
-                  const isCurrentlyOnline = navigator.onLine;
-                  
-                  console.log('🔴 NO ORDER: Submit clicked', { 
+                  console.log('🔴 NO ORDER: Submit clicked (LOCAL-FIRST)', { 
                     noOrderReason, 
                     customNoOrderReason,
                     visitId,
-                    retailerId,
-                    isOnline,
-                    isCurrentlyOnline,
-                    navigatorOnLine: navigator.onLine
+                    retailerId
                   });
                   
                   const finalReason = noOrderReason === "other" ? customNoOrderReason.trim() : noOrderReason;
@@ -1960,6 +2142,7 @@ export const OrderEntry = () => {
                       description: "Please enter a reason",
                       variant: "destructive"
                     });
+                    setNoOrderSubmitting(false);
                     return;
                   }
                   
@@ -1969,6 +2152,7 @@ export const OrderEntry = () => {
                       description: "Retailer ID is missing",
                       variant: "destructive"
                     });
+                    setNoOrderSubmitting(false);
                     return;
                   }
                   
@@ -1978,346 +2162,25 @@ export const OrderEntry = () => {
                       description: "User not authenticated. Please log in again.",
                       variant: "destructive"
                     });
+                    setNoOrderSubmitting(false);
                     return;
                   }
                   
-                  // OFFLINE MODE: Store in sync queue (check current online status)
-                  if (!isCurrentlyOnline) {
-                    console.log('📴 NO ORDER OFFLINE: Storing in sync queue');
-                    try {
-                      const { offlineStorage, STORES } = await import('@/lib/offlineStorage');
-                      
-                      const today = getLocalDateString();
-                      let effectiveVisitId = visitId;
-                      
-                      // If no visit ID, try to find one from cache
-                      if (!effectiveVisitId) {
-                        console.log('📴 Looking for visit in offline cache');
-                        const cachedVisits = await offlineStorage.getAll<any>(STORES.VISITS);
-                        const todayVisit = cachedVisits.find(
-                          v => v.retailer_id === retailerId && 
-                               v.user_id === userId && 
-                               v.planned_date === today
-                        );
-                        
-                        if (todayVisit) {
-                          effectiveVisitId = todayVisit.id;
-                          console.log('✅ Found cached visit:', effectiveVisitId);
-                        }
-                      }
-                      
-                      console.log('📴 Adding to sync queue with data:', {
-                        action: 'UPDATE_VISIT_NO_ORDER',
-                        visitId: effectiveVisitId,
-                        retailerId,
-                        userId,
-                        noOrderReason: finalReason,
-                        plannedDate: today
-                      });
-                      
-                      // Store in sync queue
-                      await offlineStorage.addToSyncQueue('UPDATE_VISIT_NO_ORDER', {
-                        visitId: effectiveVisitId,
-                        retailerId,
-                        userId,
-                        noOrderReason: finalReason,
-                        plannedDate: today,
-                        timestamp: new Date().toISOString()
-                      });
-                      
-                      console.log('✅ Successfully added to sync queue');
-                      
-                      // Verify it was saved
-                      const queueItems = await offlineStorage.getSyncQueue();
-                      console.log('📦 Sync queue now contains:', queueItems.length, 'items');
-                      
-                      // CRITICAL: Always save/update visit in offline cache for progress stats to update
-                      const visitToSave = {
-                        id: effectiveVisitId || `offline_noorder_${retailerId}_${Date.now()}`,
-                        retailer_id: retailerId,
-                        user_id: userId,
-                        planned_date: today,
-                        status: 'unproductive',
-                        no_order_reason: finalReason,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                      };
-                      
-                      // If we have an existing visit ID, try to merge with cached data
-                      if (effectiveVisitId) {
-                        const cachedVisit = await offlineStorage.getById<any>(STORES.VISITS, effectiveVisitId);
-                        if (cachedVisit) {
-                          visitToSave.id = cachedVisit.id;
-                          visitToSave.created_at = cachedVisit.created_at || visitToSave.created_at;
-                        }
-                      }
-                      
-                      await offlineStorage.save(STORES.VISITS, visitToSave);
-                      console.log('✅ Saved unproductive visit to offline cache:', visitToSave.id);
-
-                      // Also update status cache + snapshot so Visit status + Today progress update instantly
-                      // (useVisitsData prefers snapshot over offlineStorage, so this is critical)
-                      try {
-                        const [{ visitStatusCache }, { updateVisitStatusInSnapshot }] = await Promise.all([
-                          import('@/lib/visitStatusCache'),
-                          import('@/lib/myVisitsSnapshot'),
-                        ]);
-
-                        await Promise.allSettled([
-                          visitStatusCache.set(
-                            visitToSave.id,
-                            retailerId,
-                            userId,
-                            today,
-                            'unproductive',
-                            undefined,
-                            finalReason
-                          ),
-                          updateVisitStatusInSnapshot(userId, today, retailerId, 'unproductive', finalReason),
-                        ]);
-                      } catch (cacheUpdateError) {
-                        console.log('⚠️ NO ORDER: Local status caches update skipped:', cacheUpdateError);
-                      }
-
-                      toast({
-                        title: "📴 Saved Offline",
-                        description: "No order reason will sync when online",
-                        duration: 3000
-                      });
-
-                      // Clear cart and navigate
-                      try {
-                        const storageKey = validVisitId && validRetailerId 
-                          ? `order_cart:${validVisitId}:${validRetailerId}` 
-                          : validRetailerId 
-                            ? `order_cart:temp:${validRetailerId}` 
-                            : 'order_cart:fallback';
-                        localStorage.removeItem(storageKey);
-                      } catch (storageError) {
-                        console.log('⚠️ Cart clear skipped:', storageError);
-                      }
-                      
-                      // CRITICAL: Dispatch visitStatusChanged with proper details for progress stats update
-                      window.dispatchEvent(new CustomEvent('visitStatusChanged', {
-                        detail: { 
-                          visitId: effectiveVisitId, 
-                          status: 'unproductive', 
-                          retailerId,
-                          noOrderReason: finalReason
-                        }
-                      }));
-                      window.dispatchEvent(new Event('visitDataChanged'));
-                      console.log('✅ NO ORDER OFFLINE: Dispatched visitStatusChanged + visitDataChanged');
-                      
-                      setNoOrderSubmitting(false);
-                      setTimeout(() => {
-                        navigate("/visits/retailers");
-                      }, 300);
-
-                      return;
-                    } catch (error: any) {
-                      console.error('❌ Offline no-order save failed:', error);
-                      console.error('❌ Error details:', {
-                        message: error?.message,
-                        stack: error?.stack,
-                        name: error?.name
-                      });
-                      toast({
-                        title: "Failed to Save",
-                        description: error?.message || "Please try again",
-                        variant: "destructive"
-                      });
-                      setNoOrderSubmitting(false);
-                      return;
-                    }
-                  }
-                  
-                  // ONLINE MODE: Continue with existing logic
                   try {
-                    let effectiveVisitId = visitId;
+                    // Use LOCAL-FIRST pattern for instant response
+                    const { submitNoOrderLocalFirst } = await import('@/utils/noOrderUtils');
                     
-                    // CRITICAL FIX: If visit ID starts with "offline_" or "temp_", it's not a real UUID
-                    // We need to find or create a real visit in the database
-                    const isOfflineId = effectiveVisitId?.startsWith('offline_') || effectiveVisitId?.startsWith('temp_');
-                    if (isOfflineId) {
-                      console.log('⚠️ NO ORDER: Visit ID is offline-generated, will find/create real visit');
-                      effectiveVisitId = undefined; // Reset to trigger find/create logic below
-                    }
+                    const today = getLocalDateString();
                     
-                    // If no visit ID, try to find or create a visit for today
-                    if (!effectiveVisitId) {
-                      console.log('🔴 NO ORDER: No valid visit ID, checking for existing visit today...');
-                      
-                      const today = getLocalDateString();
-                      
-                      // Check if visit exists for this retailer today
-                      const { data: existingVisit } = await supabase
-                        .from('visits')
-                        .select('id')
-                        .eq('retailer_id', retailerId)
-                        .eq('user_id', userId)
-                        .eq('planned_date', today)
-                        .maybeSingle();
-                      
-                      if (existingVisit) {
-                        console.log('✅ NO ORDER: Found existing visit:', existingVisit.id);
-                        effectiveVisitId = existingVisit.id;
-                      } else {
-                        // Create a new visit for today
-                        console.log('🔴 NO ORDER: Creating new visit for today...');
-                        const { data: newVisit, error: createError } = await supabase
-                          .from('visits')
-                          .insert({
-                            retailer_id: retailerId,
-                            user_id: userId,
-                            planned_date: today,
-                            status: 'unproductive',
-                            no_order_reason: finalReason,
-                            created_at: new Date().toISOString()
-                          })
-                          .select()
-                          .single();
-                        
-                        if (createError) {
-                          console.error('❌ NO ORDER: Failed to create visit:', createError);
-                          throw createError;
-                        }
-                        
-                        console.log('✅ NO ORDER: Created new visit:', newVisit.id);
-                        effectiveVisitId = newVisit.id;
-                        
-                        // Update cache with new visit
-                        try {
-                          const { offlineStorage, STORES } = await import('@/lib/offlineStorage');
-                          await offlineStorage.save(STORES.VISITS, newVisit);
-                          console.log('✅ NO ORDER: Cached new visit');
-                        } catch (cacheError) {
-                          console.log('⚠️ NO ORDER: Cache save skipped (non-critical):', cacheError);
-                        }
-
-                        // Also update status cache + snapshot for instant UI/progress updates
-                        try {
-                          const [{ visitStatusCache }, { updateVisitStatusInSnapshot }] = await Promise.all([
-                            import('@/lib/visitStatusCache'),
-                            import('@/lib/myVisitsSnapshot'),
-                          ]);
-
-                          await Promise.allSettled([
-                            visitStatusCache.set(
-                              effectiveVisitId,
-                              retailerId,
-                              userId,
-                              today,
-                              'unproductive',
-                              undefined,
-                              finalReason
-                            ),
-                            updateVisitStatusInSnapshot(userId, today, retailerId, 'unproductive', finalReason),
-                          ]);
-                        } catch (cacheUpdateError) {
-                          console.log('⚠️ NO ORDER: Local status caches update skipped:', cacheUpdateError);
-                        }
-                        
-                        // Show success and navigate immediately
-                        toast({
-                          title: "✅ Visit Marked as Unproductive",
-                          description: `Reason: ${finalReason.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
-                          duration: 3000
-                        });
-
-                        // CRITICAL: Dispatch visitStatusChanged for progress stats update
-                        window.dispatchEvent(new CustomEvent('visitStatusChanged', {
-                          detail: { 
-                            visitId: effectiveVisitId, 
-                            status: 'unproductive', 
-                            retailerId,
-                            noOrderReason: finalReason
-                          }
-                        }));
-                        window.dispatchEvent(new Event('visitDataChanged'));
-                        console.log('✅ NO ORDER: Dispatched visitStatusChanged + visitDataChanged');
-                        
-                        setNoOrderSubmitting(false);
-                        setTimeout(() => {
-                          navigate("/visits/retailers");
-                        }, 300);
-
-                        return;
-                      }
-                    }
-                    
-                    console.log('🔴 NO ORDER: Updating visit:', effectiveVisitId, 'with reason:', finalReason);
-                    
-                    // Update database
-                    const { data: updatedVisit, error: dbError } = await supabase
-                      .from('visits')
-                      .update({
-                        status: 'unproductive',
-                        no_order_reason: finalReason,
-                        updated_at: new Date().toISOString()
-                      })
-                      .eq('id', effectiveVisitId)
-                      .select()
-                      .single();
-                      
-                    if (dbError) {
-                      console.error('🔴 NO ORDER: Database update error:', dbError);
-                      throw dbError;
-                    }
-                    
-                    console.log('✅ NO ORDER: Database updated successfully', updatedVisit);
-                    
-                    // Update cache for immediate reflection
-                    try {
-                      const { offlineStorage, STORES } = await import('@/lib/offlineStorage');
-                      const cachedVisit = await offlineStorage.getById<any>(STORES.VISITS, effectiveVisitId);
-                      
-                      if (cachedVisit) {
-                        await offlineStorage.save(STORES.VISITS, {
-                          ...cachedVisit,
-                          status: 'unproductive',
-                          no_order_reason: finalReason,
-                          updated_at: new Date().toISOString()
-                        });
-                        console.log('✅ NO ORDER: Cache updated successfully');
-                      } else {
-                        console.log('⚠️ NO ORDER: No cached visit found, saving new cache');
-                        await offlineStorage.save(STORES.VISITS, updatedVisit);
-                      }
-                    } catch (cacheError) {
-                      console.log('⚠️ NO ORDER: Cache update skipped (non-critical):', cacheError);
-                    }
-
-                    // Also update status cache + snapshot for instant UI/progress updates
-                    try {
-                      const [{ visitStatusCache }, { updateVisitStatusInSnapshot }] = await Promise.all([
-                        import('@/lib/visitStatusCache'),
-                        import('@/lib/myVisitsSnapshot'),
-                      ]);
-
-                      await Promise.allSettled([
-                        visitStatusCache.set(
-                          effectiveVisitId,
-                          retailerId,
-                          userId,
-                          getLocalDateString(),
-                          'unproductive',
-                          undefined,
-                          finalReason
-                        ),
-                        updateVisitStatusInSnapshot(userId, getLocalDateString(), retailerId, 'unproductive', finalReason),
-                      ]);
-                    } catch (cacheUpdateError) {
-                      console.log('⚠️ NO ORDER: Local status caches update skipped:', cacheUpdateError);
-                    }
-                    
-                    toast({
-                      title: "✅ Visit Marked as Unproductive",
-                      description: `Reason: ${finalReason.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
-                      duration: 3000
+                    await submitNoOrderLocalFirst({
+                      visitId,
+                      retailerId,
+                      userId,
+                      reason: finalReason,
+                      today
                     });
-
-                    // Clear the cart storage to prevent confusion
+                    
+                    // Clear cart storage
                     try {
                       const storageKey = validVisitId && validRetailerId 
                         ? `order_cart:${validVisitId}:${validRetailerId}` 
@@ -2325,37 +2188,31 @@ export const OrderEntry = () => {
                           ? `order_cart:temp:${validRetailerId}` 
                           : 'order_cart:fallback';
                       localStorage.removeItem(storageKey);
-                      console.log('✅ NO ORDER: Cart storage cleared:', storageKey);
                     } catch (storageError) {
-                      console.log('⚠️ NO ORDER: Cart clear skipped:', storageError);
+                      console.log('⚠️ Cart clear skipped:', storageError);
                     }
-
-                    // CRITICAL: Dispatch visitStatusChanged with proper details for progress stats update
-                    window.dispatchEvent(new CustomEvent('visitStatusChanged', {
-                      detail: { 
-                        visitId: effectiveVisitId, 
-                        status: 'unproductive', 
-                        retailerId,
-                        noOrderReason: finalReason
-                      }
-                    }));
-                    window.dispatchEvent(new Event('visitDataChanged'));
-                    console.log('✅ NO ORDER: Dispatched visitStatusChanged + visitDataChanged');
                     
-                    // Small delay to ensure cache/event processing, then navigate
+                    // Show success immediately
+                    toast({
+                      title: "✅ Visit Marked as Unproductive",
+                      description: `Reason: ${finalReason.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}`,
+                      duration: 3000
+                    });
+                    
+                    setNoOrderSubmitting(false);
+                    
+                    // Navigate immediately - no waiting for network
                     setTimeout(() => {
                       navigate("/visits/retailers");
-                    }, 300);
-
+                    }, 100);
                     
                   } catch (error: any) {
-                    console.error('🔴 NO ORDER: Error saving no order reason:', error);
+                    console.error('🔴 NO ORDER: Error:', error);
                     toast({
                       title: "Failed to Save",
                       description: error?.message || "Please try again",
                       variant: "destructive"
                     });
-                  } finally {
                     setNoOrderSubmitting(false);
                   }
                 }}
@@ -2473,9 +2330,19 @@ export const OrderEntry = () => {
                         })()}
                       </p>
                       
-                      {savingsAmount > 0 && <p className="text-xs text-green-600 font-semibold">
-                          You save ₹{savingsAmount.toFixed(2)}
-                        </p>}
+                      {savingsAmount > 0 && (
+                        <>
+                          <p className="text-xs text-green-600 font-semibold">
+                            You save ₹{savingsAmount.toFixed(2)}
+                          </p>
+                          {getAppliedSchemeName(product.id) && (
+                            <div className="flex items-center gap-1 text-[10px] text-orange-600">
+                              <Gift size={10} />
+                              <span>{getAppliedSchemeName(product.id)}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                     
                   </div>
@@ -3081,5 +2948,23 @@ export const OrderEntry = () => {
       }} />
       </div>
     </div>
+
+    {/* Delete Confirmation Dialog */}
+    <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Clear all items?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will remove all {cart.length} items from your order. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={clearAllFormData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            Clear All
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </Layout>;
 };

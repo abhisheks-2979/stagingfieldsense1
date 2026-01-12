@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DollarSign, ShoppingCart, Building, Navigation, TrendingUp, Users, ArrowUp, ArrowDown, AlertTriangle, Target, Calendar, Activity, Award, AlertCircle, ChevronRight, Pencil, Trash2, MapPin, FileText, Clock, User, HeartHandshake, Eye, X, Plus, Store } from 'lucide-react';
+import { DollarSign, ShoppingCart, Building, Navigation, TrendingUp, Users, ArrowUp, ArrowDown, AlertTriangle, Target, Calendar, Activity, Award, AlertCircle, ChevronRight, Pencil, Trash2, MapPin, FileText, Clock, User, HeartHandshake, Eye, X, Plus, Store, Route } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, subMonths, subQuarters, startOfYear, endOfYear, subYears } from 'date-fns';
 import TerritorySupportRequestForm from './TerritorySupportRequestForm';
@@ -69,6 +69,7 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
   const [loading, setLoading] = useState(false);
   const [distributors, setDistributors] = useState<any[]>([]);
   const [retailers, setRetailers] = useState<any[]>([]);
+  const [beats, setBeats] = useState<any[]>([]);
   const [salesSummary, setSalesSummary] = useState({ totalSales: 0, totalOrders: 0, totalRetailers: 0, totalVisits: 0 });
   const [assignmentHistory, setAssignmentHistory] = useState<any[]>([]);
   const [salesTrendData, setSalesTrendData] = useState<any[]>([]);
@@ -101,12 +102,39 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
   const [retailerOrderStats, setRetailerOrderStats] = useState<Map<string, { last6Months: number; lifetime: number; lastOrderValue: number; lastOrderDate: string | null }>>(new Map());
   const [growthPotential, setGrowthPotential] = useState<string>('');
   const [growthPotentialDetails, setGrowthPotentialDetails] = useState<string>('');
+  const [territoryTargets, setTerritoryTargets] = useState<{ revenueTarget: number; quantityTarget: number; actualRevenue: number; actualQuantity: number }>({ revenueTarget: 0, quantityTarget: 0, actualRevenue: 0, actualQuantity: 0 });
+  
+  // Financial Year state - year stored in DB is the END year of FY (e.g., 2026 for FY 2025-26)
+  const getDefaultFY = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth(); // 0-11
+    const currentYear = now.getFullYear();
+    // If current month is April (3) or later, FY ends next year
+    // If current month is Jan-Mar (0-2), FY ends this year
+    return currentMonth >= 3 ? currentYear + 1 : currentYear;
+  };
+  const [selectedFY, setSelectedFY] = useState<number>(getDefaultFY());
+  const [quantityUnit, setQuantityUnit] = useState<string>('units');
+  
+  // Generate available FY options (last 5 years)
+  const fyOptions = useMemo(() => {
+    const currentFY = getDefaultFY();
+    const options = [];
+    for (let i = 0; i < 5; i++) {
+      const fy = currentFY - i;
+      options.push({
+        value: fy,
+        label: `FY ${fy - 1}-${fy.toString().slice(-2)}`
+      });
+    }
+    return options;
+  }, []);
 
   const modalTitle = useMemo(() => territory ? `${territory.name}` : 'Territory Details', [territory]);
 
   useEffect(() => {
     if (open && territory) loadTerritoryData();
-  }, [open, territory]);
+  }, [open, territory, selectedFY]);
 
   // Calculate sales trend based on filter
   useEffect(() => {
@@ -322,6 +350,14 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
         .eq('support_category', 'territory_support')
         .order('created_at', { ascending: false });
       setSupportRequests(supportData || []);
+      
+      // Load beats linked to this territory
+      const { data: beatsData } = await supabase
+        .from('beats')
+        .select('id, beat_id, beat_name, category, is_active, average_km, average_time_minutes')
+        .eq('territory_id', territory.id)
+        .order('beat_name');
+      setBeats(beatsData || []);
 
       // Fetch full retailer data for the territory
       const { data: retailersData } = await supabase
@@ -520,6 +556,56 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
       // Get assignment history
       const { data: historyData } = await supabase.from('territory_assignment_history').select('*, profiles(full_name)').eq('territory_id', territory.id).order('assigned_from', { ascending: false });
       setAssignmentHistory(historyData || []);
+
+      // Load territory targets for the selected Financial Year (April to March)
+      // selectedFY is the END year of FY (e.g., 2026 for FY 2025-26)
+      // So FY 2025-26 runs from April 2025 to March 2026
+      const fyStartDate = new Date(selectedFY - 1, 3, 1); // April 1st of previous year
+      const fyEndDate = new Date(selectedFY, 2, 31, 23, 59, 59); // March 31st of selected year
+      
+      // Get all territory targets for this territory (from all users' business plans)
+      // Business plans are stored by the END year of FY (e.g., 2026 for FY 2025-26)
+      const { data: targetsData } = await supabase
+        .from('user_business_plan_territories')
+        .select('quantity_target, revenue_target, user_business_plans!inner(year, quantity_unit)')
+        .eq('territory_id', territory.id)
+        .eq('user_business_plans.year', selectedFY);
+      
+      // Sum up all targets for this territory
+      const totalRevenueTarget = targetsData?.reduce((sum, t) => sum + Number(t.revenue_target || 0), 0) || 0;
+      const totalQuantityTarget = targetsData?.reduce((sum, t) => sum + Number(t.quantity_target || 0), 0) || 0;
+      
+      // Get quantity unit from business plan
+      const planQuantityUnit = targetsData && targetsData.length > 0 
+        ? (targetsData[0].user_business_plans as any)?.quantity_unit || 'units'
+        : 'units';
+      setQuantityUnit(planQuantityUnit);
+      
+      // Get actual revenue and quantity for the selected FY
+      const fyOrders = allOrdersData?.filter(o => {
+        const orderDate = new Date(o.created_at);
+        return orderDate >= fyStartDate && orderDate <= fyEndDate;
+      }) || [];
+      
+      const actualRevenue = fyOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+      
+      // Get quantity from order items for FY orders
+      let actualQuantity = 0;
+      if (fyOrders.length > 0) {
+        const fyOrderIds = fyOrders.map(o => o.id);
+        const { data: orderItemsData } = await supabase
+          .from('order_items')
+          .select('quantity')
+          .in('order_id', fyOrderIds);
+        actualQuantity = orderItemsData?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || 0;
+      }
+      
+      setTerritoryTargets({
+        revenueTarget: totalRevenueTarget,
+        quantityTarget: totalQuantityTarget,
+        actualRevenue,
+        actualQuantity
+      });
     } catch (error) {
       console.error('Error loading territory data:', error);
     }
@@ -889,6 +975,119 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
               </CardContent>
             </Card>
 
+            {/* Target vs Actual Section */}
+            <Card className="shadow-lg">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                    <Target className="h-4 w-4 text-primary" />
+                    Target vs. Actual
+                  </CardTitle>
+                  <Select value={selectedFY.toString()} onValueChange={(val) => setSelectedFY(parseInt(val))}>
+                    <SelectTrigger className="w-[140px] h-8 text-xs">
+                      <SelectValue placeholder="Select FY" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fyOptions.map(fy => (
+                        <SelectItem key={fy.value} value={fy.value.toString()}>
+                          {fy.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-4">
+                {territoryTargets.revenueTarget > 0 || territoryTargets.quantityTarget > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Revenue Target vs Actual */}
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-green-700">Revenue</span>
+                        <Badge variant="outline" className={`text-xs ${
+                          territoryTargets.actualRevenue >= territoryTargets.revenueTarget 
+                            ? 'bg-green-500/20 text-green-700 border-green-500/30' 
+                            : 'bg-orange-500/20 text-orange-700 border-orange-500/30'
+                        }`}>
+                          {territoryTargets.revenueTarget > 0 
+                            ? `${((territoryTargets.actualRevenue / territoryTargets.revenueTarget) * 100).toFixed(0)}%` 
+                            : '0%'}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Target</span>
+                          <span className="font-medium">₹{territoryTargets.revenueTarget.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Actual</span>
+                          <span className="font-bold text-green-600">₹{territoryTargets.actualRevenue.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2 mt-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all ${
+                              territoryTargets.actualRevenue >= territoryTargets.revenueTarget 
+                                ? 'bg-green-500' 
+                                : 'bg-orange-500'
+                            }`}
+                            style={{ width: `${Math.min((territoryTargets.actualRevenue / (territoryTargets.revenueTarget || 1)) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                          <span>Gap: {territoryTargets.revenueTarget > territoryTargets.actualRevenue 
+                            ? `₹${(territoryTargets.revenueTarget - territoryTargets.actualRevenue).toLocaleString('en-IN')}` 
+                            : 'Target Achieved!'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quantity Target vs Actual */}
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-blue-700">Quantity</span>
+                        <Badge variant="outline" className={`text-xs ${
+                          territoryTargets.actualQuantity >= territoryTargets.quantityTarget 
+                            ? 'bg-green-500/20 text-green-700 border-green-500/30' 
+                            : 'bg-orange-500/20 text-orange-700 border-orange-500/30'
+                        }`}>
+                          {territoryTargets.quantityTarget > 0 
+                            ? `${((territoryTargets.actualQuantity / territoryTargets.quantityTarget) * 100).toFixed(0)}%` 
+                            : '0%'}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Target</span>
+                          <span className="font-medium">{territoryTargets.quantityTarget.toLocaleString('en-IN')} {quantityUnit}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Actual</span>
+                          <span className="font-bold text-blue-600">{territoryTargets.actualQuantity.toLocaleString('en-IN')} {quantityUnit}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2 mt-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all ${
+                              territoryTargets.actualQuantity >= territoryTargets.quantityTarget 
+                                ? 'bg-green-500' 
+                                : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min((territoryTargets.actualQuantity / (territoryTargets.quantityTarget || 1)) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                          <span>Gap: {territoryTargets.quantityTarget > territoryTargets.actualQuantity 
+                            ? `${(territoryTargets.quantityTarget - territoryTargets.actualQuantity).toLocaleString('en-IN')} ${quantityUnit}` 
+                            : 'Target Achieved!'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">No targets set for FY {selectedFY - 1}-{selectedFY.toString().slice(-2)}</p>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Audit Info */}
             <Card className="shadow-lg bg-muted/30">
               <CardContent className="p-3 sm:p-4">
@@ -919,75 +1118,7 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
               </CardContent>
             </Card>
 
-            {/* Sales Trend Chart with Filter */}
-            <Card className="shadow-lg">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle className="text-sm sm:text-base">Sales Trend</CardTitle>
-                  <Select value={salesTrendFilter} onValueChange={setSalesTrendFilter}>
-                    <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                      <SelectItem value="quarterly">Quarterly</SelectItem>
-                      <SelectItem value="6months">Last 6 Months</SelectItem>
-                      <SelectItem value="currentyear">Current Year</SelectItem>
-                      <SelectItem value="lastyear">Last Year</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-              <CardContent className="p-2 sm:p-4">
-                {salesTrendData.length > 0 ? (
-                  <div className="w-full overflow-x-auto">
-                    <ResponsiveContainer width="100%" height={200} minWidth={300}>
-                      <LineChart data={salesTrendData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="period" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-                        <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
-                        <Tooltip contentStyle={{ fontSize: 12 }} formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Sales']} />
-                        <Line type="monotone" dataKey="sales" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: 'hsl(var(--primary))' }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-center py-8 text-sm text-muted-foreground">No order data for selected period</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Product-wise Sales Chart */}
-            <Card className="shadow-lg">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm sm:text-base flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Award className="h-4 w-4 text-indigo-600" />
-                    <span>Product-wise Sales</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground font-normal">Based on selected period</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-2 sm:p-4">
-                {productSalesData.length > 0 ? (
-                  <div className="w-full overflow-x-auto">
-                    <ResponsiveContainer width="100%" height={250} minWidth={300}>
-                      <BarChart data={productSalesData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
-                        <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" width={100} />
-                        <Tooltip contentStyle={{ fontSize: 12 }} formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Sales']} />
-                        <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="text-center py-8 text-sm text-muted-foreground">No product data for selected period</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Performance Snapshot - Below Chart, Linked to Period */}
+            {/* Performance Snapshot - Linked to Period */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
               <Card className="shadow-lg bg-gradient-to-br from-green-500/10 to-green-600/5">
                 <CardContent className="p-3 sm:p-4">
@@ -1075,6 +1206,10 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
                   <Store className="h-3 w-3 mr-1 hidden sm:inline" />
                   Retailers & Distributors
                 </TabsTrigger>
+                <TabsTrigger value="beats" className="text-xs sm:text-sm px-2 py-2">
+                  <Route className="h-3 w-3 mr-1 hidden sm:inline" />
+                  Beats ({beats.length})
+                </TabsTrigger>
                 <TabsTrigger value="performance" className="text-xs sm:text-sm px-2 py-2">
                   <TrendingUp className="h-3 w-3 mr-1 hidden sm:inline" />
                   Territory Performance
@@ -1082,10 +1217,6 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
                 <TabsTrigger value="support" className="text-xs sm:text-sm px-2 py-2">
                   <HeartHandshake className="h-3 w-3 mr-1 hidden sm:inline" />
                   Support Requests
-                </TabsTrigger>
-                <TabsTrigger value="history" className="text-xs sm:text-sm px-2 py-2">
-                  <Clock className="h-3 w-3 mr-1 hidden sm:inline" />
-                  History
                 </TabsTrigger>
               </TabsList>
 
@@ -1217,8 +1348,135 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
                 </Card>
               </TabsContent>
 
+              {/* Beats Tab */}
+              <TabsContent value="beats" className="mt-4">
+                <Card className="shadow-lg">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Route className="h-4 w-4 text-primary" />
+                      Beats Linked to Territory ({beats.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 sm:p-4">
+                    {beats.length > 0 ? (
+                      <div className="overflow-x-auto -mx-3 sm:mx-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs sm:text-sm">Beat Name</TableHead>
+                              <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Category</TableHead>
+                              <TableHead className="text-xs sm:text-sm hidden md:table-cell">Avg KM</TableHead>
+                              <TableHead className="text-xs sm:text-sm hidden md:table-cell">Avg Time</TableHead>
+                              <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {beats.map((beat) => (
+                              <TableRow 
+                                key={beat.id} 
+                                className="cursor-pointer hover:bg-muted/50"
+                                onClick={() => {
+                                  onOpenChange(false);
+                                  navigate(`/beat/${beat.id}`);
+                                }}
+                              >
+                                <TableCell className="text-xs sm:text-sm font-medium text-primary">{beat.beat_name}</TableCell>
+                                <TableCell className="text-xs sm:text-sm hidden sm:table-cell">
+                                  <Badge variant="outline" className="text-xs">{beat.category || 'General'}</Badge>
+                                </TableCell>
+                                <TableCell className="text-xs sm:text-sm text-muted-foreground hidden md:table-cell">
+                                  {beat.average_km ? `${beat.average_km} km` : '-'}
+                                </TableCell>
+                                <TableCell className="text-xs sm:text-sm text-muted-foreground hidden md:table-cell">
+                                  {beat.average_time_minutes ? `${beat.average_time_minutes} min` : '-'}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={beat.is_active !== false ? "default" : "secondary"} className="text-xs">
+                                    {beat.is_active !== false ? 'Active' : 'Inactive'}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">No beats linked to this territory</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
               {/* Territory Performance Tab */}
               <TabsContent value="performance" className="mt-4 space-y-4">
+                {/* Sales Trend Chart with Filter */}
+                <Card className="shadow-lg">
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <CardTitle className="text-sm sm:text-base">Sales Trend</CardTitle>
+                      <Select value={salesTrendFilter} onValueChange={setSalesTrendFilter}>
+                        <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                          <SelectItem value="quarterly">Quarterly</SelectItem>
+                          <SelectItem value="6months">Last 6 Months</SelectItem>
+                          <SelectItem value="currentyear">Current Year</SelectItem>
+                          <SelectItem value="lastyear">Last Year</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-2 sm:p-4">
+                    {salesTrendData.length > 0 ? (
+                      <div className="w-full overflow-x-auto">
+                        <ResponsiveContainer width="100%" height={200} minWidth={300}>
+                          <LineChart data={salesTrendData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="period" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                            <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
+                            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Sales']} />
+                            <Line type="monotone" dataKey="sales" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: 'hsl(var(--primary))' }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <p className="text-center py-8 text-sm text-muted-foreground">No order data for selected period</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Product-wise Sales Chart */}
+                <Card className="shadow-lg">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm sm:text-base flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Award className="h-4 w-4 text-indigo-600" />
+                        <span>Product-wise Sales</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground font-normal">Based on selected period</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-2 sm:p-4">
+                    {productSalesData.length > 0 ? (
+                      <div className="w-full overflow-x-auto">
+                        <ResponsiveContainer width="100%" height={250} minWidth={300}>
+                          <BarChart data={productSalesData} layout="vertical">
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} />
+                            <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" width={100} />
+                            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Sales']} />
+                            <Bar dataKey="sales" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <p className="text-center py-8 text-sm text-muted-foreground">No product data for selected period</p>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {/* Calendar */}
                 <TerritoryPerformanceCalendar territoryId={territory.id} retailerIds={retailers.map(r => r.id)} />
                 
@@ -1286,31 +1544,6 @@ const TerritoryDetailsModal: React.FC<TerritoryDetailsModalProps> = ({ open, onO
                     ) : (
                       <p className="text-sm text-muted-foreground text-center py-4">No support requests</p>
                     )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              {/* History Tab */}
-              <TabsContent value="history" className="mt-4">
-                <Card className="shadow-lg">
-                  <CardHeader className="pb-3"><CardTitle className="text-sm">Assignment History</CardTitle></CardHeader>
-                  <CardContent className="p-3">
-                    {assignmentHistory.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader><TableRow><TableHead className="text-xs">Team Member</TableHead><TableHead className="text-xs hidden sm:table-cell">From</TableHead><TableHead className="text-xs">Duration</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                            {assignmentHistory.filter(a => a?.id).map(a => (
-                              <TableRow key={a.id}>
-                                <TableCell className="text-xs font-medium">{a.profiles?.full_name || 'Unknown'}</TableCell>
-                                <TableCell className="text-xs hidden sm:table-cell">{format(new Date(a.assigned_from), 'MMM dd, yyyy')}</TableCell>
-                                <TableCell className="text-xs text-muted-foreground">{a.assigned_to ? `${Math.ceil((new Date(a.assigned_to).getTime() - new Date(a.assigned_from).getTime()) / (1000 * 60 * 60 * 24))} days` : 'Ongoing'}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    ) : <p className="text-sm text-muted-foreground text-center py-4">No history</p>}
                   </CardContent>
                 </Card>
               </TabsContent>

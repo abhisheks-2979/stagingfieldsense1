@@ -42,13 +42,35 @@ export interface SyncMetadata {
 // Minimum sync interval (5 minutes)
 export const MIN_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
+// Chunk size for large datasets (retailers, products)
+const CHUNK_SIZE = 1000;
+
 class OfflineStorage {
   private initialized = false;
+  // In-memory cache to avoid repeated JSON parsing
+  private memoryCache: Map<string, { data: any[]; timestamp: number }> = new Map();
+  private readonly CACHE_TTL = 60000; // 1 minute cache
+  private readonly MAX_CACHE_SIZE = 10; // Limit number of cached stores to prevent memory bloat
 
   async init(): Promise<void> {
     if (this.initialized) return;
     console.log('[OfflineStorage] ✅ Capacitor Preferences ready - data persists across app restarts');
     this.initialized = true;
+  }
+
+  // Prune cache if it exceeds max size (LRU-like: remove oldest entries)
+  private pruneCache(): void {
+    if (this.memoryCache.size <= this.MAX_CACHE_SIZE) return;
+    
+    // Sort by timestamp, remove oldest entries
+    const entries = Array.from(this.memoryCache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    
+    const toRemove = entries.slice(0, entries.length - this.MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      this.memoryCache.delete(key);
+    }
+    console.log(`[OfflineStorage] Pruned ${toRemove.length} cache entries`);
   }
 
   private async ensureReady(): Promise<void> {
@@ -62,27 +84,53 @@ class OfflineStorage {
     return `offline_${storeName}`;
   }
 
-  // Helper to get data from Preferences
+  // Helper to get data from Preferences with memory caching
   private async getStoreData<T>(storeName: string): Promise<T[]> {
     try {
+      // Check memory cache first (avoids JSON parsing on repeated reads)
+      const cached = this.memoryCache.get(storeName);
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+        return cached.data as T[];
+      }
+      
       const key = this.getStoreKey(storeName);
       const { value } = await Preferences.get({ key });
-      return value ? JSON.parse(value) : [];
+      const data = value ? JSON.parse(value) : [];
+      
+      // Cache in memory for fast subsequent reads
+      this.memoryCache.set(storeName, { data, timestamp: Date.now() });
+      
+      return data;
     } catch (error) {
       console.error(`[OfflineStorage] Error reading ${storeName}:`, error);
       return [];
     }
   }
 
-  // Helper to save data to Preferences
+  // Helper to save data to Preferences and update cache
   private async setStoreData(storeName: string, data: any[]): Promise<void> {
     try {
       const key = this.getStoreKey(storeName);
       await Preferences.set({ key, value: JSON.stringify(data) });
+      
+      // Update memory cache and prune if needed
+      this.memoryCache.set(storeName, { data, timestamp: Date.now() });
+      this.pruneCache();
     } catch (error) {
       console.error(`[OfflineStorage] Error writing ${storeName}:`, error);
       throw error;
     }
+  }
+
+  // Invalidate memory cache for a store (call after external updates)
+  invalidateCache(storeName: string): void {
+    this.memoryCache.delete(storeName);
+  }
+
+  // Clear all memory cache
+  clearMemoryCache(): void {
+    this.memoryCache.clear();
+    console.log('[OfflineStorage] Memory cache cleared');
   }
 
   // Generic CRUD operations
@@ -110,6 +158,19 @@ class OfflineStorage {
       console.log(`[OfflineStorage] ✅ Saved to ${storeName}`);
     } catch (error) {
       console.error(`[OfflineStorage] ❌ Failed to save to ${storeName}:`, error);
+      throw error;
+    }
+  }
+
+  // Replace the entire store in ONE write (critical for large datasets like retailers)
+  async replaceAll<T>(storeName: string, items: T[]): Promise<void> {
+    await this.ensureReady();
+
+    try {
+      await this.setStoreData(storeName, items as any[]);
+      console.log(`[OfflineStorage] ✅ Replaced ${storeName} with ${items.length} items`);
+    } catch (error) {
+      console.error(`[OfflineStorage] ❌ Failed to replace ${storeName}:`, error);
       throw error;
     }
   }
@@ -165,6 +226,10 @@ class OfflineStorage {
     }
   }
 
+  // Throttle syncQueueUpdated event to prevent event storms
+  private lastSyncQueueEventTime = 0;
+  private static readonly SYNC_QUEUE_EVENT_THROTTLE = 5000; // 5 seconds
+
   // Sync queue operations for offline actions
   async addToSyncQueue(action: string, data: any): Promise<void> {
     const syncItem = {
@@ -177,10 +242,16 @@ class OfflineStorage {
     
     await this.save(STORES.SYNC_QUEUE, syncItem);
 
-    // Notify UI that sync queue changed (so it can trigger immediate sync while online)
+    // THROTTLED: Notify UI that sync queue changed (max once per 5 seconds)
+    // This prevents event storms when multiple items are queued rapidly
     try {
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('syncQueueUpdated'));
+        const now = Date.now();
+        if (now - this.lastSyncQueueEventTime > OfflineStorage.SYNC_QUEUE_EVENT_THROTTLE) {
+          this.lastSyncQueueEventTime = now;
+          window.dispatchEvent(new Event('syncQueueUpdated'));
+          console.log('[OfflineStorage] 📤 syncQueueUpdated event dispatched (throttled)');
+        }
       }
     } catch {
       // no-op

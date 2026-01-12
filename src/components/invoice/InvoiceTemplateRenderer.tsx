@@ -46,22 +46,41 @@ export default function InvoiceTemplateRenderer({
       // Fetch retailer details with beat
       const { data: retailerData } = await supabase
         .from("retailers")
-        .select("*, beat_id")
+        .select("*, beat_id, beat_name")
         .eq("id", retailerId)
         .single();
 
       if (retailerData) {
         setRetailer(retailerData);
-        
-        // Fetch beat name if beat_id exists
-        if (retailerData.beat_id) {
-          const { data: beatData } = await supabase
+
+        // Primary source: retailers.beat_name (stored at assignment time)
+        setBeatName((retailerData.beat_name || "").trim());
+
+        // Fallback: resolve beat name via beats master using retailers.beat_id
+        if (!retailerData.beat_name && retailerData.beat_id) {
+          // beat_id in retailers can be either UUID (id) or string (beat_id column in beats table)
+          // Try matching on beat_id column first, then fall back to id
+          let beatData = null;
+
+          const { data: beatByBeatId } = await supabase
             .from("beats")
             .select("beat_name")
-            .eq("id", retailerData.beat_id)
-            .single();
-          
-          if (beatData) {
+            .eq("beat_id", retailerData.beat_id)
+            .maybeSingle();
+
+          if (beatByBeatId) {
+            beatData = beatByBeatId;
+          } else {
+            // Fallback: try matching on id (UUID)
+            const { data: beatById } = await supabase
+              .from("beats")
+              .select("beat_name")
+              .eq("id", retailerData.beat_id)
+              .maybeSingle();
+            beatData = beatById;
+          }
+
+          if (beatData?.beat_name) {
             setBeatName(beatData.beat_name);
           }
         }

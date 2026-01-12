@@ -1,6 +1,6 @@
 import { Menu, X, LogOut, ArrowLeft, Wifi, WifiOff } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo, useRef } from "react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { useConnectivity } from "@/hooks/useConnectivity";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useTranslation } from 'react-i18next';
 import { useActivePerformanceModule } from "@/hooks/useActivePerformanceModule";
-import bharathLogo from '@/assets/bharath-logo.png';
+import { useCompanyData } from "@/hooks/useCompanyData";
+import { Building2 as DefaultLogoIcon } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -25,8 +26,8 @@ import {
   Gift,
   CreditCard,
   Trophy,
-  BookOpen,
   Target,
+  TrendingUp,
   Shield,
   Store,
   Package,
@@ -37,6 +38,7 @@ import {
   Building2,
   Trash2,
   ShoppingCart,
+  BarChart3,
 } from "lucide-react";
 
 // Memoized Navbar component for better performance
@@ -47,7 +49,12 @@ export const Navbar = memo(() => {
   const connectivityStatus = useConnectivity();
   const { t } = useTranslation('common');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { activeModule, isGamificationActive, isTargetActualActive } = useActivePerformanceModule();
+  const { isGamificationActive } = useActivePerformanceModule();
+  const { headerName, headerLogo } = useCompanyData();
+  
+  // Company name and logo - no hardcoded fallbacks, uses cache
+  const companyName = headerName || '';
+  const companyLogo = headerLogo;
   
   // Hide back button on home/dashboard
   const showBackButton = location.pathname !== '/dashboard' && location.pathname !== '/';
@@ -58,6 +65,9 @@ export const Navbar = memo(() => {
       { icon: UserCheck, label: t('nav.attendance'), href: "/attendance", color: "from-blue-500 to-blue-600" },
       { icon: Car, label: t('nav.myVisit'), href: "/visits/retailers", color: "from-green-500 to-green-600" },
       { icon: Store, label: t('nav.allRetailers'), href: "/my-retailers", color: "from-emerald-500 to-emerald-600" },
+      { icon: Target, label: "My Target", href: "/my-target", color: "from-cyan-500 to-cyan-600" },
+      { icon: TrendingUp, label: "Performance", href: "/performance-dashboard", color: "from-emerald-500 to-emerald-600" },
+      { icon: BarChart3, label: t('nav.analytics'), href: "/analytics", color: "from-violet-500 to-violet-600" },
       { icon: Building2, label: "Institutional Sales", href: "/institutional-sales", color: "from-indigo-500 to-indigo-600" },
       { icon: Factory, label: "Distributor Master", href: "/distributor-master", color: "from-cyan-500 to-cyan-600" },
       { icon: ShoppingCart, label: "Primary Orders", href: "/primary-orders", color: "from-rose-500 to-rose-600" },
@@ -69,11 +79,6 @@ export const Navbar = memo(() => {
       { icon: CreditCard, label: t('nav.expenses'), href: "/expenses", color: "from-indigo-500 to-indigo-600" },
     ];
 
-    // Only add Performance if module is not 'none'
-    if (activeModule !== 'none') {
-      baseItems.push({ icon: Target, label: "Performance", href: "/performance", color: "from-cyan-500 to-cyan-600" });
-    }
-
     // Add Leaderboard only if gamification is active
     if (isGamificationActive) {
       baseItems.push({ icon: Trophy, label: "Leader board", href: "/leaderboard", color: "from-yellow-500 to-yellow-600" });
@@ -81,13 +86,12 @@ export const Navbar = memo(() => {
 
     // Add remaining items
     baseItems.push(
-      { icon: BookOpen, label: "Sales Coach", href: "/sales-coach", color: "from-teal-500 to-teal-600" },
-      { icon: Target, label: t('nav.analytics'), href: "/analytics", color: "from-violet-500 to-violet-600" },
+      { icon: Target, label: "My Competency", href: "/competency-dashboard", color: "from-indigo-500 to-indigo-600" },
       { icon: Trash2, label: "Recycle Bin", href: "/recycle-bin", color: "from-rose-500 to-rose-600" },
     );
 
     return baseItems;
-  }, [t, activeModule, isGamificationActive]);
+  }, [t, isGamificationActive]);
 
   // Admin-only navigation items
   const adminNavigationItems = [
@@ -103,6 +107,30 @@ export const Navbar = memo(() => {
     setIsMenuOpen(false);
   }, []);
 
+  // Handle back navigation with debounce to prevent double-click issues
+  const isNavigatingRef = useRef(false);
+  const handleBackClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Prevent double navigation
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    
+    // Check if there's history to go back to
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      // Fallback to dashboard if no history
+      navigate('/dashboard');
+    }
+    
+    // Reset after navigation completes
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 300);
+  }, [navigate]);
+
   return (
     <>
       {/* Navbar - positioned below safe area top */}
@@ -110,9 +138,9 @@ export const Navbar = memo(() => {
         <div className="px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {showBackButton && (
+            {showBackButton && (
                 <button
-                  onClick={() => navigate(-1)}
+                  onClick={handleBackClick}
                   className="p-1 rounded-lg hover:bg-white/10 transition-colors text-white"
                   title="Go back"
                 >
@@ -122,15 +150,19 @@ export const Navbar = memo(() => {
               
               <NavLink to="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity text-white">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center overflow-hidden bg-white p-0.5">
-                  <img 
-                    src={bharathLogo} 
-                    alt="Bharath Beverages" 
-                    className="w-full h-full object-contain"
-                  />
+                  {companyLogo ? (
+                    <img 
+                      src={companyLogo} 
+                      alt={companyName || 'Company'} 
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <DefaultLogoIcon className="w-6 h-6 text-primary" />
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center gap-1">
-                    <h1 className="text-base font-semibold text-white">Bharath Beverages</h1>
+                    <h1 className="text-base font-semibold text-white">{companyName}</h1>
                     <SyncStatusIndicator />
                   </div>
                   <div className="flex items-center gap-0.5 text-white">
@@ -165,23 +197,31 @@ export const Navbar = memo(() => {
           {/* User Profile Section */}
           <SheetHeader className="pb-3 border-b bg-gradient-primary text-primary-foreground rounded-lg -mx-6 -mt-6 px-6 pt-4 mb-6 pr-12">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex flex-col items-start flex-1 min-w-0">
-                <SheetTitle 
-                  className="text-lg font-bold text-primary-foreground cursor-pointer hover:opacity-80 transition-opacity truncate w-full text-left" 
-                  onClick={() => {
-                    navigate('/profile');
-                    handleMenuItemClick();
-                  }}
-                >
-                  {displayName}
-                </SheetTitle>
-                {userRole === 'admin' && (
-                  <div className="flex items-center gap-1.5 text-xs opacity-90 text-primary-foreground mt-1">
-                    <Shield className="h-3.5 w-3.5" />
-                    <span className="font-medium">Admin</span>
-                  </div>
-                )}
-              </div>
+              <button 
+                onClick={() => {
+                  navigate('/profile');
+                  handleMenuItemClick();
+                }}
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+              >
+                <Avatar className="h-12 w-12 border-2 border-primary-foreground/30">
+                  <AvatarImage src={userProfile?.profile_picture_url || ""} />
+                  <AvatarFallback className="bg-primary-foreground/20 text-primary-foreground">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col items-start flex-1 min-w-0">
+                  <SheetTitle className="text-lg font-bold text-primary-foreground truncate w-full text-left">
+                    {displayName}
+                  </SheetTitle>
+                  {userRole === 'admin' && (
+                    <div className="flex items-center gap-1.5 text-xs opacity-90 text-primary-foreground mt-1">
+                      <Shield className="h-3.5 w-3.5" />
+                      <span className="font-medium">Admin</span>
+                    </div>
+                  )}
+                </div>
+              </button>
               <div className="flex items-center flex-shrink-0">
                 <button
                   onClick={() => {

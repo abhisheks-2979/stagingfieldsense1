@@ -22,7 +22,8 @@ import {
   Lightbulb,
   Building,
   Users,
-  Target
+  Target,
+  RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -192,10 +193,10 @@ const DistributorDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background standalone-page">
       {/* Admin Impersonation Banner */}
       {isImpersonated && (
-        <div className="sticky top-0 z-[60] bg-amber-500 text-white px-4 py-2">
+        <div className="sticky-header-safe z-[60] bg-amber-500 text-white px-4 py-2">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4" />
@@ -217,7 +218,7 @@ const DistributorDashboard = () => {
       )}
 
       {/* Header */}
-      <header className={`sticky ${isImpersonated ? 'top-[40px]' : 'top-0'} z-50 bg-card border-b shadow-sm`}>
+      <header className={`sticky ${isImpersonated ? 'top-[calc(var(--sat)+40px)]' : 'sticky-header-safe'} z-50 bg-card border-b shadow-sm`}>
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
@@ -246,11 +247,11 @@ const DistributorDashboard = () => {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Quick Actions */}
         <div className="flex flex-wrap gap-3">
-          <Button onClick={() => navigate('/distributor-portal/orders/new')}>
+          <Button onClick={() => navigate('/distributor-portal/create-primary-order')}>
             <Plus className="w-4 h-4 mr-2" />
             New Order
           </Button>
-          <Button variant="outline" onClick={() => navigate('/distributor-portal/orders')}>
+          <Button variant="outline" onClick={() => navigate('/distributor-portal/primary-orders')}>
             <ClipboardList className="w-4 h-4 mr-2" />
             Primary Orders
           </Button>
@@ -261,6 +262,10 @@ const DistributorDashboard = () => {
           <Button variant="outline" onClick={() => navigate('/distributor-portal/inventory')}>
             <Package className="w-4 h-4 mr-2" />
             Inventory
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/distributor-portal/returns')}>
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Returns
           </Button>
           <Button variant="outline" onClick={() => navigate('/distributor-portal/claims')}>
             <FileText className="w-4 h-4 mr-2" />
@@ -375,7 +380,7 @@ const DistributorDashboard = () => {
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={() => navigate('/distributor-portal/orders')}
+                onClick={() => navigate('/distributor-portal/primary-orders')}
               >
                 View All
                 <ArrowRight className="w-4 h-4 ml-1" />
@@ -389,7 +394,7 @@ const DistributorDashboard = () => {
                 <p>No orders yet</p>
                 <Button 
                   variant="link" 
-                  onClick={() => navigate('/distributor-portal/orders/new')}
+                  onClick={() => navigate('/distributor-portal/create-primary-order')}
                   className="mt-2"
                 >
                   Create your first order
@@ -401,7 +406,7 @@ const DistributorDashboard = () => {
                   <div 
                     key={order.id}
                     className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
-                    onClick={() => navigate(`/distributor-portal/orders/${order.id}`)}
+                    onClick={() => navigate(`/distributor-portal/primary-order/${order.id}`)}
                   >
                     <div>
                       <p className="font-medium text-foreground">{order.order_number}</p>

@@ -17,7 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { 
   Phone, MapPin, Edit2, ExternalLink, TrendingUp, Trash2, ShoppingCart, 
   Check, ChevronsUpDown, FileText, Download, Send, Loader2, ChevronLeft, 
-  ChevronRight, Calendar, BarChart3, User, Building, Gift
+  ChevronRight, Calendar, BarChart3, User, Building, Gift, Target, CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +26,8 @@ import { moveToRecycleBin } from "@/utils/recycleBinUtils";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from "recharts";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths, startOfWeek, endOfWeek, startOfQuarter, endOfQuarter, subQuarters, subMonths as subM, startOfDay, subDays, startOfYear } from "date-fns";
 import { RetailerLoyaltySection } from "./loyalty/RetailerLoyaltySection";
+import { TargetVsActualCard } from "./performance/TargetVsActualCard";
+import { CreditScoreDisplay } from "./CreditScoreDisplay";
 
 interface RetailerInvoice {
   id: string;
@@ -52,6 +54,8 @@ interface OrderItem {
 interface Retailer {
   id: string;
   name: string;
+  contact_name?: string | null;
+  contact_title?: string | null;
   address: string;
   phone: string | null;
   category: string | null;
@@ -84,6 +88,8 @@ interface Retailer {
   revenue_growth_12m?: number | null;
   total_order_value_fy?: number | null;
 }
+
+const contactTitles = ["Shop owner", "Support staff", "Family member", "Others"];
 
 interface RetailerDetailModalProps {
   isOpen: boolean;
@@ -131,6 +137,8 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
   const [loading, setLoading] = useState(false);
   const [beats, setBeats] = useState<{ beat_id: string; beat_name: string }[]>([]);
   const [territories, setTerritories] = useState<{ id: string; name: string; region: string }[]>([]);
+  const [distributors, setDistributors] = useState<{ id: string; name: string }[]>([]);
+  const [distributorOpen, setDistributorOpen] = useState(false);
   const [territoryOpen, setTerritoryOpen] = useState(false);
   const [creditConfig, setCreditConfig] = useState<{is_enabled: boolean, scoring_mode: string} | null>(null);
   const [invoices, setInvoices] = useState<RetailerInvoice[]>([]);
@@ -184,6 +192,7 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
       loadBeats();
       loadTerritories();
       loadCreditConfig();
+      loadDistributors();
     }
   }, [user, isOpen]);
 
@@ -521,6 +530,21 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
     }
   };
 
+  const loadDistributors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('distributors')
+        .select('id, name')
+        .eq('status', 'active')
+        .order('name');
+      
+      if (error) throw error;
+      setDistributors(data || []);
+    } catch (error: any) {
+      console.error('Error loading distributors:', error);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData || !user) return;
 
@@ -532,6 +556,8 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
         .from('retailers')
         .update({
           name: formData.name,
+          contact_name: formData.contact_name,
+          contact_title: formData.contact_title,
           phone: formData.phone,
           address: formData.address,
           category: formData.category,
@@ -721,7 +747,7 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
               </div>
               <div>
                 <span className="text-muted-foreground">Distributor:</span>{' '}
-                <span className="font-medium">{associatedDistributor || 'Not mapped'}</span>
+                <span className="font-medium">{associatedDistributor || formData.parent_name || 'Not mapped'}</span>
               </div>
             </div>
           </div>
@@ -751,28 +777,31 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="overview" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-5 h-9">
-            <TabsTrigger value="overview" className="text-xs">
-              <TrendingUp className="h-3 w-3 mr-1" /> Overview
+        <Tabs defaultValue="details" className="flex-1 overflow-hidden flex flex-col">
+          <TabsList className="grid w-full grid-cols-6 h-9">
+            <TabsTrigger value="details" className="text-xs">
+              <User className="h-3 w-3 mr-1" /> Details
             </TabsTrigger>
-            <TabsTrigger value="loyalty" className="text-xs">
-              <Gift className="h-3 w-3 mr-1" /> Loyalty
+            <TabsTrigger value="highlight" className="text-xs">
+              <TrendingUp className="h-3 w-3 mr-1" /> Highlight
+            </TabsTrigger>
+            <TabsTrigger value="credit" className="text-xs">
+              <CreditCard className="h-3 w-3 mr-1" /> Credit
             </TabsTrigger>
             <TabsTrigger value="calendar" className="text-xs">
               <Calendar className="h-3 w-3 mr-1" /> Calendar
             </TabsTrigger>
+            <TabsTrigger value="loyalty" className="text-xs">
+              <Gift className="h-3 w-3 mr-1" /> Loyalty
+            </TabsTrigger>
             <TabsTrigger value="charts" className="text-xs">
               <BarChart3 className="h-3 w-3 mr-1" /> Charts
-            </TabsTrigger>
-            <TabsTrigger value="details" className="text-xs">
-              <User className="h-3 w-3 mr-1" /> Details
             </TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto mt-3">
-            {/* Overview Tab */}
-            <TabsContent value="overview" className="mt-0 space-y-4">
+            {/* Highlight Tab */}
+            <TabsContent value="highlight" className="mt-0 space-y-4">
               {/* Key Metrics - Mobile responsive with truncation */}
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <Card className="p-2 sm:p-3">
@@ -833,6 +862,9 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
                   <p className="text-sm sm:text-base font-semibold">{allOrders.length}</p>
                 </Card>
               </div>
+
+              {/* Target vs Actual */}
+              <TargetVsActualCard entityType="retailer" entityId={formData.id} userId={user?.id} />
 
               {/* Invoices */}
               <Card>
@@ -925,6 +957,15 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
                 retailerId={formData.id} 
                 retailerName={formData.name}
                 territoryId={formData.territory_id}
+              />
+            </TabsContent>
+
+            {/* Credit Tab */}
+            <TabsContent value="credit" className="mt-0 space-y-3">
+              <CreditScoreDisplay 
+                retailerId={formData.id} 
+                variant="full" 
+                showCreditLimit 
               />
             </TabsContent>
 
@@ -1102,27 +1143,59 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
                 <CardHeader className="py-2 px-3">
                   <CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" /> Owner Details</CardTitle>
                 </CardHeader>
-                <CardContent className="p-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Owner's Name</Label>
-                    {isEditing ? (
-                      <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="h-8 text-sm mt-1" />
-                    ) : (
-                      <p className="text-sm font-medium">{formData.name}</p>
-                    )}
+                <CardContent className="p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Owner's Name</Label>
+                      {isEditing ? (
+                        <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="h-8 text-sm mt-1" />
+                      ) : (
+                        <p className="text-sm font-medium">{formData.name}</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Owner's Number</Label>
+                      {isEditing ? (
+                        <Input value={formData.phone || ''} onChange={(e) => setFormData({...formData, phone: e.target.value})} className="h-8 text-sm mt-1" />
+                      ) : formData.phone ? (
+                        <a href={`tel:${formData.phone}`} className="flex items-center gap-1 text-sm hover:text-primary">
+                          <Phone size={12} className="text-primary" /> {formData.phone}
+                        </a>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">-</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Owner's Number</Label>
-                    {isEditing ? (
-                      <Input value={formData.phone || ''} onChange={(e) => setFormData({...formData, phone: e.target.value})} className="h-8 text-sm mt-1" />
-                    ) : formData.phone ? (
-                      <a href={`tel:${formData.phone}`} className="flex items-center gap-1 text-sm hover:text-primary">
-                        <Phone size={12} className="text-primary" /> {formData.phone}
-                      </a>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">-</p>
-                    )}
+                  
+                  {/* Contact Name and Title */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Contact Name</Label>
+                      {isEditing ? (
+                        <Input value={formData.contact_name || ''} onChange={(e) => setFormData({...formData, contact_name: e.target.value})} className="h-8 text-sm mt-1" placeholder="Contact person name" />
+                      ) : (
+                        <p className="text-sm">{formData.contact_name || '-'}</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Title</Label>
+                      {isEditing ? (
+                        <Select value={formData.contact_title || ''} onValueChange={(value) => setFormData({...formData, contact_title: value})}>
+                          <SelectTrigger className="h-8 text-sm mt-1">
+                            <SelectValue placeholder="Select title" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-background border z-50">
+                            {contactTitles.map((title) => (
+                              <SelectItem key={title} value={title}>{title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-sm">{formData.contact_title || '-'}</p>
+                      )}
+                    </div>
                   </div>
+                  
                   <div>
                     <Label className="text-xs text-muted-foreground">GST Number</Label>
                     {isEditing ? (
@@ -1230,7 +1303,37 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
                   <div>
                     <Label className="text-xs text-muted-foreground">Parent Name / Distributor</Label>
                     {isEditing ? (
-                      <Input value={formData.parent_name || ''} onChange={(e) => setFormData({...formData, parent_name: e.target.value})} className="h-8 text-sm mt-1" placeholder="Distributor name" />
+                      <Popover open={distributorOpen} onOpenChange={setDistributorOpen}>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" role="combobox" aria-expanded={distributorOpen} className="w-full h-8 text-sm mt-1 justify-between font-normal">
+                            {formData.parent_name || "Select distributor..."}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[250px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search distributors..." className="h-9" />
+                            <CommandList>
+                              <CommandEmpty>No distributor found.</CommandEmpty>
+                              <CommandGroup>
+                                {distributors.map((dist) => (
+                                  <CommandItem
+                                    key={dist.id}
+                                    value={dist.name}
+                                    onSelect={() => {
+                                      setFormData({...formData, parent_name: dist.name});
+                                      setDistributorOpen(false);
+                                    }}
+                                  >
+                                    <Check className={cn("mr-2 h-4 w-4", formData.parent_name === dist.name ? "opacity-100" : "opacity-0")} />
+                                    {dist.name}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                     ) : (
                       <p className="text-sm">{formData.parent_name || associatedDistributor || '-'}</p>
                     )}
@@ -1251,14 +1354,16 @@ export const RetailerDetailModal = ({ isOpen, onClose, retailer, onSuccess, star
                         <SelectTrigger className="h-8 text-sm mt-1"><SelectValue placeholder="Select type" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="Grocery Store">Grocery Store</SelectItem>
-                          <SelectItem value="Supermarket">Supermarket</SelectItem>
-                          <SelectItem value="Convenience Store">Convenience Store</SelectItem>
-                          <SelectItem value="Provision Store">Provision Store</SelectItem>
-                          <SelectItem value="General Store">General Store</SelectItem>
+                          <SelectItem value="Individual stall">Individual stall</SelectItem>
+                          <SelectItem value="Kirana store">Kirana store</SelectItem>
+                          <SelectItem value="Super market">Super market</SelectItem>
+                          <SelectItem value="Bakery">Bakery</SelectItem>
                           <SelectItem value="Milk Parlour">Milk Parlour</SelectItem>
                           <SelectItem value="Hotel">Hotel</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
+                          <SelectItem value="Restaurants">Restaurants</SelectItem>
+                          <SelectItem value="Catering Services">Catering Services</SelectItem>
+                          <SelectItem value="Business Office">Business Office</SelectItem>
+                          <SelectItem value="Others">Others</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (

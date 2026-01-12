@@ -4,7 +4,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Shield, Users, Settings, Package, ArrowLeft, CalendarDays, MapPin, DollarSign, BarChart3, MessageSquareText, Navigation, Store, Truck, Flag, Trophy, FileText, CreditCard, Lock, Bell, Target, Trash2 } from 'lucide-react';
+import { Shield, Users, Settings, Package, ArrowLeft, CalendarDays, MapPin, DollarSign, BarChart3, MessageSquareText, Navigation, Store, Truck, Flag, Trophy, FileText, CreditCard, Lock, Bell, Trash2, Building2, Gift, Target } from 'lucide-react';
 import { SearchInput } from '@/components/SearchInput';
 
 const AdminControls = () => {
@@ -32,7 +32,8 @@ const AdminControls = () => {
     { title: "User Management", description: "Manage user accounts, roles, and permissions", icon: Users, color: "orange", path: "/admin#users" },
     { title: "System Settings", description: "Configure system-wide settings and preferences", icon: Settings, color: "gray", path: "/admin#settings" },
     { title: "Attendance Management", description: "Manage user attendance, holidays, and leave approvals", icon: CalendarDays, color: "purple", path: "/attendance-management" },
-    { title: "Products", description: "Manage your product catalog, SKUs, and promotional schemes", icon: Package, color: "blue", path: "/product-management" },
+    { title: "Products", description: "Manage your product catalog, categories, and SKUs", icon: Package, color: "blue", path: "/product-management" },
+    { title: "Scheme Master", description: "Create and manage promotional schemes, offers, and discounts", icon: Gift, color: "amber", path: "/scheme-management" },
     { title: "Vendors", description: "Manage vendor relationships and approvals", icon: Users, color: "green", path: "/vendors" },
     { title: "Territories & Distributors", description: "Manage territory assignments and distributor network", icon: MapPin, color: "indigo", path: "/territories-and-distributors" },
     { title: "Expense Management", description: "Track team productivity and expense analytics", icon: DollarSign, color: "yellow", path: "/admin-expense-management" },
@@ -45,11 +46,14 @@ const AdminControls = () => {
     { title: "Feature Management", description: "Control which features are visible and active for users", icon: Flag, color: "violet", path: "/feature-management" },
     { title: "Gamification", description: "Configure games, points, actions, and manage redemptions", icon: Trophy, color: "amber", path: "/gamification-admin" },
     { title: "Retailer Loyalty", description: "Manage retailer loyalty programs, points, and redemptions", icon: Trophy, color: "pink", path: "/retailer-loyalty-admin" },
-    { title: "Invoice Management", description: "Create and manage GST invoices with automatic tax calculations", icon: FileText, color: "cyan", path: "/invoice-management" },
+    { title: "Company Profile", description: "Manage company details, bank information, and header branding", icon: Building2, color: "blue", path: "/company-profile" },
+    { title: "Invoice Management", description: "Create and manage GST invoices with templates", icon: FileText, color: "cyan", path: "/invoice-management" },
     { title: "Credit Management", description: "Configure retailer credit scoring and limit management system", icon: CreditCard, color: "emerald", path: "/credit-management" },
     { title: "Notification Setup", description: "Manage automated content templates and schedules for users", icon: Bell, color: "rose", path: "/push-content-setup" },
-    { title: "Performance Module", description: "Choose between Gamification or Target vs. Actual tracking", icon: Target, color: "cyan", path: "/admin/performance-module" },
     { title: "Recycle Bin Master", description: "Configure recycle bin settings and view permanent deletion logs", icon: Trash2, color: "rose", path: "/admin/recycle-bin" },
+    { title: "Distributor Portal Admin", description: "Manage distributor portal users, orders, claims, support, and ideas", icon: Building2, color: "cyan", path: "/admin/distributor-portal" },
+    { title: "Target vs Actual", description: "Set targets for team members and track their achievement", icon: Target, color: "blue", path: "/admin/target-vs-actual" },
+    { title: "Hierarchy Targets", description: "Set targets from top and cascade down to all team members", icon: Users, color: "violet", path: "/admin/hierarchy-targets" },
   ];
 
   const filteredModules = adminModules.filter(module => 

@@ -2,16 +2,20 @@ import { offlineStorage, STORES } from '@/lib/offlineStorage';
 import { supabase } from '@/integrations/supabase/client';
 import { visitStatusCache } from '@/lib/visitStatusCache';
 import { addOrderToSnapshot } from '@/lib/myVisitsSnapshot';
-import { isSlowConnection } from '@/utils/internetSpeedCheck';
 import { getLocalTodayDate } from '@/utils/dateUtils';
+import { isSlowConnection } from '@/utils/internetSpeedCheck';
+import { markVisitDataChanged } from '@/lib/visitChangeMarker';
+
+const SYNC_TIMEOUT_MS = 5000; // 5 second timeout for all sync operations
+
+// DUPLICATE FIX: Prevent multiple sync attempts for the same order in one session
+const syncAttemptLock = new Map<string, number>(); // orderId -> timestamp
+const LOCK_DURATION_MS = 30000; // 30 seconds lock per order
 
 /**
  * Submit an order with offline support
  * Automatically falls back to offline mode on slow connections or timeouts
- * @param orderData - The order data to insert
- * @param orderItems - The order items to insert
- * @param options - Additional options
- * @returns Result with success status and order data
+ * 5-second timeout auto-queues to offline sync if network is slow
  */
 export async function submitOrderWithOfflineSupport(
   orderData: any,
@@ -22,236 +26,167 @@ export async function submitOrderWithOfflineSupport(
     connectivityStatus?: 'online' | 'offline' | 'unknown';
   } = {}
 ) {
-  // Check if connection is slow - use shorter timeout or go straight to offline
-  const slowConnection = isSlowConnection();
-  const timeoutMs = slowConnection ? 5000 : 10000; // 5s for slow, 10s for normal
-  // CRITICAL: Update visit status cache IMMEDIATELY for instant UI feedback
-  // This ensures the VisitCard shows "Productive" right away, even on slow internet
-  const orderDate = orderData.order_date || getLocalTodayDate();
-  const orderValue = Number(orderData.total_amount) || orderItems.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-  
-  if (orderData.retailer_id && orderData.user_id) {
-    console.log('⚡ [ORDER] Immediate cache update for instant UI feedback:', {
-      retailerId: orderData.retailer_id,
-      date: orderDate,
-      orderValue
-    });
-    
-    await visitStatusCache.set(
-      orderData.visit_id || crypto.randomUUID(),
-      orderData.retailer_id,
-      orderData.user_id,
-      orderDate,
-      'productive',
-      orderValue
-    );
-    
-    // Dispatch event immediately for instant UI update - include order for orders state update
-    window.dispatchEvent(new CustomEvent('visitStatusChanged', {
-      detail: {
-        visitId: orderData.visit_id,
-        status: 'productive',
-        retailerId: orderData.retailer_id,
-        orderValue,
-        order: { ...orderData, items: orderItems, total_amount: orderValue }
-      }
-    }));
-  }
-
-  // Double-check connectivity: use both provided status and navigator.onLine
-  const connectivityCheck = options.connectivityStatus !== 'offline' && navigator.onLine;
-  
-  // Try online submission first if we think we're online
-  // On very slow connections, skip network and go straight to offline for instant response
-  if (connectivityCheck && !slowConnection) {
-    try {
-      // Add timeout for slow networks
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Network timeout - submitting offline')), timeoutMs)
-      );
-      
-      // Online submission with timeout
-      const submitPromise = (async () => {
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .insert(orderData)
-          .select()
-          .single();
-
-        if (orderError) {
-          // If duplicate key error, try to fetch the existing order
-          if (orderError.code === '23505' && orderData.idempotency_key) {
-            console.log('⚠️ [ORDER] Duplicate order detected, fetching existing...');
-            // Duplicate detected - this is expected behavior, not an error
-            // The idempotency key constraint prevented a duplicate
-            return orderData; // Return the original data as the "order"
-          }
-          throw orderError;
-        }
-
-        const itemsWithOrderId = orderItems.map(item => ({
-          ...item,
-          order_id: order.id
-        }));
-
-        const { error: itemsError } = await supabase
-          .from('order_items')
-          .insert(itemsWithOrderId);
-
-        if (itemsError) throw itemsError;
-        
-        return order;
-      })();
-      
-      const order = await Promise.race([submitPromise, timeoutPromise]) as any;
-
-      options.onOnline?.();
-
-      // Persist locally for instant "Today's Progress" + app restarts
-      const normalizedOrderDate = orderData.order_date || getLocalTodayDate();
-      const normalizedOrder = {
-        id: order.id,
-        retailer_id: orderData.retailer_id,
-        user_id: orderData.user_id,
-        // CRITICAL: Round total_amount consistently to prevent cache/snapshot inconsistencies
-        total_amount: Math.round(Number(order.total_amount ?? orderData.total_amount ?? orderValue ?? 0)),
-        order_date: normalizedOrderDate,
-        status: order.status || orderData.status || 'confirmed',
-        visit_id: orderData.visit_id || order.visit_id,
-        created_at: order.created_at || new Date().toISOString(),
-        items: orderItems,
-      };
-
-      try {
-        await offlineStorage.save(STORES.ORDERS, normalizedOrder);
-      } catch (e) {
-        console.warn('[ORDER] Could not save online order to offline store (non-fatal):', e);
-      }
-
-      if (orderData.user_id) {
-        try {
-          await addOrderToSnapshot(orderData.user_id, normalizedOrderDate, {
-            id: normalizedOrder.id,
-            retailer_id: normalizedOrder.retailer_id,
-            user_id: normalizedOrder.user_id,
-            total_amount: normalizedOrder.total_amount,
-            order_date: normalizedOrder.order_date,
-            status: normalizedOrder.status,
-            visit_id: normalizedOrder.visit_id,
-          });
-        } catch (e) {
-          console.warn('[ORDER] Could not update snapshot with online order (non-fatal):', e);
-        }
-      }
-
-      // Trigger data refresh for Today's Progress
-      console.log('✅ [ORDER] Online submission successful, triggering data refresh');
-      window.dispatchEvent(new Event('visitDataChanged'));
-
-      return { 
-        success: true, 
-        offline: false, 
-        order 
-      };
-    } catch (error: any) {
-      // If online submission fails or times out, fall back to offline mode
-      console.warn('Online submission failed/timeout, queuing for offline sync:', error.message);
-      
-      // Fall through to offline logic below
-    }
-  }
-  
-  // Offline mode or failed online attempt: Queue for sync
+  // STEP 1: Generate order ID and prepare data FIRST
   const orderId = crypto.randomUUID();
-  const offlineOrderDate = orderData.order_date || getLocalTodayDate();
-  const offlineOrder = {
+  const orderDate = orderData.order_date || getLocalTodayDate();
+  const orderValue = Math.round(Number(orderData.total_amount) || orderItems.reduce((sum, item) => sum + (Number(item.total) || 0), 0));
+  
+  const normalizedOrder = {
     ...orderData,
     id: orderId,
-    created_at: new Date().toISOString(),
-    order_date: offlineOrderDate,
+    total_amount: orderValue,
+    order_date: orderDate,
     status: orderData.status || 'confirmed',
-    // CRITICAL: Round total_amount consistently to prevent cache/snapshot inconsistencies
-    total_amount: Math.round(Number(orderData.total_amount ?? orderValue ?? 0)),
+    created_at: new Date().toISOString(),
   };
 
-  const offlineItems = orderItems.map(item => ({
+  const normalizedItems = orderItems.map(item => ({
     ...item,
     order_id: orderId
   }));
 
-  // Save to offline storage
-  await offlineStorage.save(STORES.ORDERS, { ...offlineOrder, items: offlineItems });
-  
-  // Queue for sync with visitId for proper status updates
-  await offlineStorage.addToSyncQueue('CREATE_ORDER', {
-    order: offlineOrder,
-    items: offlineItems,
-    visitId: orderData.visit_id  // Include visitId for sync event dispatch
-  });
-
-  // CRITICAL: Update visit status cache to 'productive' immediately for offline orders
-  // This ensures the VisitCard shows "Productive" right away without waiting for sync
+  // STEP 2: Save to local cache FIRST (await this for instant local display)
+  // This ensures "Today's Order" section can show items immediately
   if (orderData.retailer_id && orderData.user_id) {
-    const orderDate = offlineOrder.order_date || new Date().toISOString().split('T')[0];
-    // Use the rounded total_amount from offlineOrder for consistency
-    const orderValue = offlineOrder.total_amount;
+    try {
+      // Save order with items to local storage (critical for immediate display)
+      await offlineStorage.save(STORES.ORDERS, { ...normalizedOrder, items: normalizedItems });
+    } catch (e) {
+      // Non-critical - continue even if local save fails
+    }
     
-    console.log('💾 [ORDER] Caching productive status for offline order:', {
-      retailerId: orderData.retailer_id,
-      userId: orderData.user_id,
-      date: orderDate,
-      orderValue
-    });
+    // Fire-and-forget cache updates (these are secondary)
+    Promise.allSettled([
+      visitStatusCache.set(
+        orderData.visit_id || orderId,
+        orderData.retailer_id,
+        orderData.user_id,
+        orderDate,
+        'productive',
+        orderValue
+      ),
+      addOrderToSnapshot(orderData.user_id, orderDate, {
+        id: orderId,
+        retailer_id: orderData.retailer_id,
+        user_id: orderData.user_id,
+        total_amount: orderValue,
+        order_date: orderDate,
+        status: normalizedOrder.status,
+        visit_id: orderData.visit_id,
+      })
+    ]);
     
-    await visitStatusCache.set(
-      orderData.visit_id || orderId,
-      orderData.retailer_id,
-      orderData.user_id,
-      orderDate,
-      'productive',
-      orderValue
-    );
-    
-    // Dispatch visitStatusChanged event for immediate UI update - include order for orders state update
+    // STEP 3: Dispatch events IMMEDIATELY for instant UI update
+    // Include COMPLETE order data with items for proper state updates
     window.dispatchEvent(new CustomEvent('visitStatusChanged', {
       detail: {
         visitId: orderData.visit_id || orderId,
         status: 'productive',
         retailerId: orderData.retailer_id,
         orderValue,
-        order: { ...offlineOrder, items: offlineItems, total_amount: orderValue }
+        order: {
+          id: orderId,
+          retailer_id: orderData.retailer_id,
+          user_id: orderData.user_id,
+          total_amount: orderValue,
+          order_date: orderDate,
+          status: 'confirmed',
+          visit_id: orderData.visit_id || orderId,
+          created_at: normalizedOrder.created_at,
+          updated_at: normalizedOrder.created_at,
+          items: normalizedItems // Include items for complete order data
+        }
       }
     }));
+    window.dispatchEvent(new Event('visitDataChanged'));
+    
+    // STEP 3.5: Mark data changed for cross-page state sync
+    markVisitDataChanged();
   }
 
-  options.onOffline?.();
-
-  // Ensure snapshot is created/updated so My Visits can show today's order instantly
-  if (orderData.user_id) {
-    try {
-      await addOrderToSnapshot(orderData.user_id, offlineOrderDate, {
-        id: offlineOrder.id,
-        retailer_id: offlineOrder.retailer_id,
-        user_id: offlineOrder.user_id,
-        total_amount: Number(offlineOrder.total_amount ?? 0),
-        order_date: offlineOrderDate,
-        status: offlineOrder.status || 'confirmed',
-        visit_id: offlineOrder.visit_id,
-      });
-      console.log('📸 [ORDER] Updated My Visits snapshot with offline order');
-    } catch (snapshotError) {
-      console.warn('[ORDER] Could not update snapshot (offline):', snapshotError);
+  // STEP 4: Background sync with 5-second timeout - ALWAYS non-blocking
+  setTimeout(async () => {
+    // DUPLICATE FIX: Check sync attempt lock
+    const lastAttempt = syncAttemptLock.get(orderId);
+    if (lastAttempt && Date.now() - lastAttempt < LOCK_DURATION_MS) {
+      console.log('[offlineOrderUtils] Sync attempt locked for order:', orderId);
+      return;
     }
-  }
+    syncAttemptLock.set(orderId, Date.now());
+    
+    if (!navigator.onLine || options.connectivityStatus === 'offline') {
+      offlineStorage.addToSyncQueue('CREATE_ORDER', {
+        order: normalizedOrder,
+        items: normalizedItems,
+        visitId: orderData.visit_id
+      });
+      options.onOffline?.();
+      return;
+    }
 
-  // Trigger data refresh for Today's Progress
-  console.log('✅ [ORDER] Offline order queued, triggering data refresh');
-  window.dispatchEvent(new Event('visitDataChanged'));
+    try {
+      const submitPromise = (async () => {
+        // Check if order already exists (could be from previous partial sync)
+        const { data: existingOrder } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('id', orderId)
+          .maybeSingle();
 
+        if (!existingOrder) {
+          // Insert order header first
+          const { error: orderError } = await supabase
+            .from('orders')
+            .insert({ ...normalizedOrder, id: orderId });
+
+          if (orderError && orderError.code !== '23505') {
+            throw orderError;
+          }
+        }
+
+        // ALWAYS ensure order items are inserted (even if order existed)
+        // First check if items already exist
+        const { data: existingItems } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('order_id', orderId)
+          .limit(1);
+
+        if (!existingItems || existingItems.length === 0) {
+          // Insert items only if they don't exist
+          const { error: itemsError } = await supabase
+            .from('order_items')
+            .insert(normalizedItems);
+
+          if (itemsError && itemsError.code !== '23505') {
+            throw itemsError;
+          }
+        }
+      })();
+      
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('5s timeout')), SYNC_TIMEOUT_MS)
+      );
+      
+      await Promise.race([submitPromise, timeoutPromise]);
+      options.onOnline?.();
+    } catch {
+      // On any error/timeout, queue BOTH order and items for sync
+      // The sync handler will handle idempotent upserts
+      offlineStorage.addToSyncQueue('CREATE_ORDER', {
+        order: normalizedOrder,
+        items: normalizedItems,
+        visitId: orderData.visit_id
+      });
+      options.onOffline?.();
+    }
+  }, 0);
+
+  // Return IMMEDIATELY - don't wait for network
   return { 
     success: true, 
-    offline: true, 
-    order: offlineOrder 
+    offline: !navigator.onLine || options.connectivityStatus === 'offline', 
+    order: normalizedOrder 
   };
 }
 

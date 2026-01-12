@@ -81,7 +81,7 @@ const GoodsReceipt = () => {
     } catch (error) {
       console.error('Error loading order:', error);
       toast.error('Failed to load order details');
-      navigate('/distributor-portal/orders');
+      navigate('/distributor-portal/primary-orders');
     } finally {
       setLoading(false);
     }
@@ -176,6 +176,25 @@ const GoodsReceipt = () => {
               last_received_date: new Date().toISOString().split('T')[0],
             });
         }
+
+        // Log inward transaction
+        await supabase
+          .from('distributor_inventory_transactions')
+          .insert({
+            distributor_id: distributorId,
+            product_id: item.product_id,
+            variant_id: item.variant_id || null,
+            transaction_type: 'inward',
+            quantity: item.received_quantity,
+            reference_type: 'primary_order',
+            reference_id: orderId,
+            reference_number: order.order_number,
+            batch_number: item.batch_number || null,
+            unit: item.unit,
+            unit_cost: item.unit_price,
+            notes: `GRN from primary order ${order.order_number}`,
+            created_by: (await supabase.auth.getUser()).data.user?.id,
+          });
       }
 
       // 3. Check if all items fully received
@@ -199,7 +218,7 @@ const GoodsReceipt = () => {
         .eq('id', orderId);
 
       toast.success('GRN confirmed! Inventory updated.');
-      navigate('/distributor-portal/orders');
+      navigate('/distributor-portal/primary-orders');
     } catch (error) {
       console.error('Error confirming GRN:', error);
       toast.error('Failed to confirm GRN');
@@ -229,13 +248,13 @@ const GoodsReceipt = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background standalone-page">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-card border-b shadow-sm">
+      <header className="sticky-header-safe z-50 bg-card border-b shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={() => navigate('/distributor-portal/orders')}>
+              <Button variant="ghost" size="icon" onClick={() => navigate('/distributor-portal/primary-orders')}>
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div>
@@ -380,7 +399,7 @@ const GoodsReceipt = () => {
           <Button 
             variant="outline" 
             className="flex-1"
-            onClick={() => navigate('/distributor-portal/orders')}
+            onClick={() => navigate('/distributor-portal/primary-orders')}
           >
             Cancel
           </Button>

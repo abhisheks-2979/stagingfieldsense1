@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Calendar as CalendarIcon, FileText, Plus, TrendingUp, Route, CheckCircle, CalendarDays, MapPin, Users, Clock, Truck, ArrowUpDown, RefreshCw, Download } from "lucide-react";
+import { Calendar as CalendarIcon, FileText, Plus, TrendingUp, Route, CheckCircle, CalendarDays, MapPin, Users, Clock, Truck, ArrowUpDown, RefreshCw, Download, Sparkles, Loader2, BarChart3 } from "lucide-react";
 import { PointsDetailsModal } from "@/components/PointsDetailsModal";
 import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, addWeeks, subWeeks, differenceInDays } from "date-fns";
 import { SearchInput } from "@/components/SearchInput";
@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { TimelineView } from "@/components/TimelineView";
 import { toast } from "sonner";
 import { useRecommendations } from "@/hooks/useRecommendations";
-import { AIRecommendationBanner } from "@/components/AIRecommendationBanner";
+
 import { VanStockManagement } from "@/components/VanStockManagement";
 import { useLocationFeature } from "@/hooks/useLocationFeature";
 import { offlineStorage, STORES } from "@/lib/offlineStorage";
@@ -39,6 +39,7 @@ import { getLocalTodayDate, toLocalISODate } from "@/utils/dateUtils";
 import { SyncDataModal } from "@/components/SyncDataModal";
 import { UserSelector } from "@/components/UserSelector";
 import { useSubordinates } from "@/hooks/useSubordinates";
+import { InsightsPanel } from "@/components/visits/InsightsPanel";
 
 interface Visit {
   id: string;
@@ -46,6 +47,7 @@ interface Visit {
   retailerName: string;
   address: string;
   phone: string;
+  contactName?: string;
   retailerCategory: string;
   status: "planned" | "in-progress" | "productive" | "unproductive" | "store-closed" | "cancelled";
   visitType: string;
@@ -184,6 +186,7 @@ export const MyVisits = () => {
   const [showClearCacheDialog, setShowClearCacheDialog] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [selectedViewUserId, setSelectedViewUserId] = useState<string>('self'); // For viewing subordinates' data
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const {
     user
   } = useAuth();
@@ -325,6 +328,7 @@ export const MyVisits = () => {
         retailerName: retailer.name || '',
         address: retailer.address || '',
         phone: retailer.phone || '',
+        contactName: retailer.contact_name || '',
         retailerCategory: retailer.category || '',
         status,
         visitType: 'Regular Visit',
@@ -429,15 +433,23 @@ export const MyVisits = () => {
     loadWeekPlans();
   }, [user, weekDays]);
   // Removed - now using useVisitsDataOptimized hook for better performance
-  const loadTimelineVisits = async (date: Date) => {
-    if (!user) return;
+  // Calculate the effective user ID for timeline queries based on selected user
+  const timelineTargetUserId = useMemo(() => {
+    if (selectedViewUserId === 'self' || !selectedViewUserId) {
+      return user?.id;
+    }
+    return selectedViewUserId;
+  }, [selectedViewUserId, user?.id]);
+
+  const loadTimelineVisits = async (date: Date, targetUserId: string) => {
+    if (!targetUserId) return;
     try {
       const dateStr = format(date, 'yyyy-MM-dd');
 
       // Get attendance data for day start time
       const {
         data: attendance
-      } = await supabase.from('attendance').select('check_in_time').eq('user_id', user.id).eq('date', dateStr).maybeSingle();
+      } = await supabase.from('attendance').select('check_in_time').eq('user_id', targetUserId).eq('date', dateStr).maybeSingle();
       if (attendance?.check_in_time) {
         setTimelineDayStart(format(new Date(attendance.check_in_time), 'hh:mm a'));
       } else {
@@ -448,7 +460,7 @@ export const MyVisits = () => {
       const { data: beatPlan } = await supabase
         .from('beat_plans')
         .select('id, joint_sales_manager_id')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .eq('plan_date', dateStr)
         .maybeSingle();
 
@@ -481,7 +493,7 @@ export const MyVisits = () => {
           no_order_reason,
           skip_check_in_time,
           updated_at
-        `).eq('user_id', user.id).eq('planned_date', dateStr);
+        `).eq('user_id', targetUserId).eq('planned_date', dateStr);
       if (error) throw error;
 
       // Get retailer details for these visits
@@ -508,8 +520,25 @@ export const MyVisits = () => {
       const {
         data: orders,
         error: ordersError
-      } = await supabase.from('orders').select('retailer_id, total_amount, created_at, order_items(quantity)').eq('user_id', user.id).eq('status', 'confirmed').in('retailer_id', retailerIds).gte('created_at', dateStart.toISOString()).lte('created_at', dateEnd.toISOString());
+      } = await supabase.from('orders').select('retailer_id, total_amount, created_at, order_items(quantity)').eq('user_id', targetUserId).eq('status', 'confirmed').in('retailer_id', retailerIds).gte('created_at', dateStart.toISOString()).lte('created_at', dateEnd.toISOString());
       if (ordersError) throw ordersError;
+
+      // Fetch retailer_visit_logs for accurate time tracking
+      const { data: visitLogs } = await supabase
+        .from('retailer_visit_logs')
+        .select('retailer_id, start_time, end_time, time_spent_seconds')
+        .eq('user_id', targetUserId)
+        .eq('visit_date', dateStr)
+        .in('retailer_id', retailerIds);
+
+      // Create visit logs map (using latest log per retailer)
+      const visitLogsMap = new Map();
+      (visitLogs || []).forEach(log => {
+        const existing = visitLogsMap.get(log.retailer_id);
+        if (!existing || new Date(log.start_time) > new Date(existing.start_time)) {
+          visitLogsMap.set(log.retailer_id, log);
+        }
+      });
 
       // Create order map with created_at time
       const orderMap = new Map();
@@ -533,7 +562,7 @@ export const MyVisits = () => {
       const {
         data: feedbacks,
         error: feedbackError
-      } = await supabase.from('retailer_feedback').select('retailer_id, created_at').eq('user_id', user.id).in('retailer_id', retailerIds).gte('created_at', dateStart.toISOString()).lte('created_at', dateEnd.toISOString());
+      } = await supabase.from('retailer_feedback').select('retailer_id, created_at').eq('user_id', targetUserId).in('retailer_id', retailerIds).gte('created_at', dateStart.toISOString()).lte('created_at', dateEnd.toISOString());
       
       const feedbackMap = new Map();
       (feedbacks || []).forEach(feedback => {
@@ -549,6 +578,7 @@ export const MyVisits = () => {
         const order = orderMap.get(visit.retailer_id);
         const feedbackTime = feedbackMap.get(visit.retailer_id);
         const hasJointFeedback = jointSalesFeedbackMap.has(visit.retailer_id);
+        const visitLog = visitLogsMap.get(visit.retailer_id);
         
         // Determine activity time based on what action was taken
         let activityTime = null;
@@ -564,22 +594,24 @@ export const MyVisits = () => {
           activityTime = feedbackTime;
         }
 
-        // Use check_in_time if available, otherwise use skip_check_in_time for phone orders
-        const effectiveTime = visit.check_in_time || visit.skip_check_in_time;
+        // Use visit log times if available, otherwise fallback to visit times
+        const effectiveCheckIn = visitLog?.start_time || visit.check_in_time || visit.skip_check_in_time;
+        const effectiveCheckOut = visitLog?.end_time || visit.check_out_time;
         
         return {
           id: visit.id,
           retailer_name: retailer?.name || 'Unknown',
-          check_in_time: effectiveTime,
-          check_out_time: visit.check_out_time,
+          check_in_time: effectiveCheckIn,
+          check_out_time: effectiveCheckOut,
           check_in_address: visit.check_in_address || retailer?.address || 'Address not available',
           status: visit.status,
           order_value: order?.value || 0,
           order_quantity: order?.quantity || 0,
           no_order_reason: visit.no_order_reason,
           activity_time: activityTime,
-          is_planned: !effectiveTime, // Flag for planned visits
-          is_joint_sales: hasJointSales && hasJointFeedback
+          is_planned: !effectiveCheckIn, // Flag for planned visits
+          is_joint_sales: hasJointSales && hasJointFeedback,
+          time_spent_seconds: visitLog?.time_spent_seconds || null
         };
       })
       // Filter to only show visits with an activity (order, no_order_reason, or feedback)
@@ -596,12 +628,12 @@ export const MyVisits = () => {
     }
   };
 
-  // Load timeline visits when date changes
+  // Load timeline visits when date changes or selected user changes
   useEffect(() => {
-    if (isTimelineOpen && user) {
-      loadTimelineVisits(timelineDate);
+    if (isTimelineOpen && timelineTargetUserId) {
+      loadTimelineVisits(timelineDate, timelineTargetUserId);
     }
-  }, [timelineDate, isTimelineOpen, user]);
+  }, [timelineDate, isTimelineOpen, timelineTargetUserId]);
   const loadAllVisitsForDate = async (date: string, beatPlans: any[] = optimizedBeatPlans, preserveOrder: boolean = false) => {
     if (!user) return;
     try {
@@ -843,6 +875,7 @@ export const MyVisits = () => {
           retailerName: retailer.name,
           address: retailer.address,
           phone: retailer.phone || '',
+          contactName: retailer.contact_name || '',
           retailerCategory: retailer.category || 'Category A',
           priority: retailer.priority || 'medium',
           status,
@@ -900,6 +933,48 @@ export const MyVisits = () => {
     const targetDay = newWeekDays[sameWeekdayIndex] || newWeekDays[0];
     setSelectedDay(targetDay.day);
     setSelectedDate(targetDay.isoDate);
+  };
+
+  const handleAutoGeneratePlan = async () => {
+    if (!user?.id) return;
+    
+    setIsGeneratingPlan(true);
+    const loadingToast = toast.loading('Generating optimized plan for this week and next...');
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-generate-beat-plan', {
+        body: { 
+          userId: user.id,
+          forceRegenerate: true 
+        }
+      });
+      
+      if (error) throw error;
+      
+      toast.dismiss(loadingToast);
+      
+      const result = data?.results?.[0];
+      if (result?.status === 'success') {
+        const plansCreated = result.plansCreated || 0;
+        const prescheduled = result.prescheduledPreserved || 0;
+        
+        toast.success(`Created ${plansCreated} new plans, preserved ${prescheduled} pre-scheduled beats!`);
+        
+        // Navigate to rationale page with the plan result
+        navigate('/auto-plan-rationale', { state: { planResult: result } });
+      } else {
+        toast.error(result?.reason || 'Failed to generate plan');
+      }
+      
+      // Refresh current view
+      invalidateData?.();
+    } catch (error) {
+      console.error('Auto-generate error:', error);
+      toast.dismiss(loadingToast);
+      toast.error('Failed to generate plan. Please try again.');
+    } finally {
+      setIsGeneratingPlan(false);
+    }
   };
 
   // Extract unique categories and locations for filter options
@@ -1048,10 +1123,10 @@ export const MyVisits = () => {
 
   // Use progressStats from the optimized hook for accurate counts
   // These are calculated directly from the database/cache with proper status logic
-  const plannedVisitsCount = progressStats.planned;
+  const plannedVisitsCount = progressStats.planned; // Pending visits (renamed from planned)
   const productiveVisits = progressStats.productive;
   const unproductiveVisits = progressStats.unproductive;
-  const totalOrdersToday = progressStats.totalOrders;
+  const totalPlannedVisits = progressStats.totalPlanned; // Total planned (doesn't change)
   const totalOrderValue = progressStats.totalOrderValue;
   const handleViewDetails = (visitId: string) => {
     window.location.href = `/visit/${visitId}`;
@@ -1158,14 +1233,29 @@ export const MyVisits = () => {
             </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2">
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mb-2">
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 text-[10px] sm:text-sm h-8 sm:h-9 px-1.5 sm:px-3"
+                onClick={handleAutoGeneratePlan}
+                disabled={isGeneratingPlan}
+                title="AI generates optimized weekly beat plans"
+              >
+                {isGeneratingPlan ? (
+                  <Loader2 size={12} className="mr-1 sm:mr-1.5 animate-spin" />
+                ) : (
+                  <Sparkles size={12} className="mr-1 sm:mr-1.5" />
+                )}
+                <span className="whitespace-nowrap">{isGeneratingPlan ? 'Planning...' : 'Auto Plan'}</span>
+              </Button>
               <Button variant="secondary" size="sm" className={`bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 text-[10px] sm:text-sm h-8 sm:h-9 px-1.5 sm:px-3 ${selectedDate < new Date().toISOString().split('T')[0] ? 'opacity-50 cursor-not-allowed' : ''}`} onClick={() => navigate(`/beat-planning?date=${selectedDate}`)} disabled={selectedDate < new Date().toISOString().split('T')[0]}>
                 <Route size={12} className="mr-1 sm:mr-1.5" />
                 <span className="whitespace-nowrap">All Beat</span>
               </Button>
               <Button variant="secondary" size="sm" className="bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 text-[10px] sm:text-sm h-8 sm:h-9 px-1.5 sm:px-3" onClick={() => navigate('/my-retailers', { state: { returnTo: '/visits/retailers' } })}>
                 <Users size={12} className="mr-1 sm:mr-1.5" />
-                <span className="whitespace-nowrap">All Retailers</span>
+                <span className="whitespace-nowrap">Retailers</span>
               </Button>
               <Button variant="secondary" size="sm" className="bg-primary-foreground/10 text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 text-[9px] sm:text-sm h-8 sm:h-9 px-1 sm:px-3 overflow-hidden" onClick={() => navigate(`/today-summary?date=${selectedDate}`)}>
                 <FileText size={10} className="mr-0.5 sm:mr-1.5 flex-shrink-0" />
@@ -1226,25 +1316,24 @@ export const MyVisits = () => {
                   }}
                   title={!isOnline ? "Cannot sync while offline" : "Sync all data for offline use"}
                 >
-                  <Download size={12} />
+                  <RefreshCw size={12} />
                 </Button>
               </div>
             </div>
             
-             {/* Stats Grid - Mobile Responsive */}
+             {/* Stats Grid - Mobile Responsive - Reordered: Planned, Pending | Productive, Unproductive | Total Order Value, Points Earned */}
              <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-               <button onClick={() => navigate(`/today-summary?date=${selectedDate}`)} className="bg-gradient-to-r from-success/10 to-success/5 p-2 sm:p-3 rounded-lg border border-success/20 cursor-pointer hover:from-success/15 hover:to-success/10 transition-all flex flex-col items-center justify-center text-center min-h-[70px] sm:min-h-[85px]">
-                 <div className="text-base sm:text-xl font-bold text-success leading-tight">₹{Math.round(totalOrderValue).toLocaleString()}</div>
-                 <div className="text-[9px] sm:text-xs text-success/80 font-medium mt-1 leading-tight">{t('visits.totalOrderValue')}</div>
+               {/* Row 1: Planned, Pending */}
+               <button className="bg-gradient-to-br from-indigo-50 to-indigo-100 hover:from-indigo-100 hover:to-indigo-150 border border-indigo-200 p-2 sm:p-3 rounded-lg text-center transition-all flex flex-col items-center justify-center min-h-[70px] sm:min-h-[85px]">
+                 <div className="text-base sm:text-xl font-bold text-indigo-600 leading-tight">{totalPlannedVisits}</div>
+                 <div className="text-[9px] sm:text-xs font-medium text-indigo-600/80 mt-1 leading-tight">Planned Visits</div>
                </button>
-               <button onClick={handleOrdersClick} className="bg-gradient-to-r from-primary/10 to-primary/5 p-2 sm:p-3 rounded-lg border border-primary/20 cursor-pointer hover:from-primary/15 hover:to-primary/10 transition-all flex flex-col items-center justify-center text-center min-h-[70px] sm:min-h-[85px]">
-                 <div className="text-base sm:text-xl font-bold text-primary leading-tight">{totalOrdersToday}</div>
-                 <div className="text-[9px] sm:text-xs text-primary/80 font-medium mt-1 leading-tight">{t('visits.todaysOrder')}</div>
+               <button onClick={() => handleStatusClick("planned")} className={`p-2 sm:p-3 rounded-lg text-center transition-all transform hover:scale-105 flex flex-col items-center justify-center min-h-[70px] sm:min-h-[85px] ${statusFilter === "planned" ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25" : "bg-gradient-to-br from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-150 border border-blue-200"}`}>
+                 <div className="text-base sm:text-xl font-bold leading-tight">{plannedVisitsCount}</div>
+                 <div className="text-[9px] sm:text-xs font-medium opacity-80 mt-1 leading-tight">Pending Visits</div>
                </button>
-                <button onClick={() => handleStatusClick("planned")} className={`p-2 sm:p-3 rounded-lg text-center transition-all transform hover:scale-105 flex flex-col items-center justify-center min-h-[70px] sm:min-h-[85px] ${statusFilter === "planned" ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25" : "bg-gradient-to-br from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-150 border border-blue-200"}`}>
-                  <div className="text-base sm:text-xl font-bold leading-tight">{plannedVisitsCount}</div>
-                  <div className="text-[9px] sm:text-xs font-medium opacity-80 mt-1 leading-tight">{t('visits.planned')}</div>
-                </button>
+               
+               {/* Row 2: Productive, Unproductive */}
                <button onClick={() => handleStatusClick("productive")} className={`p-2 sm:p-3 rounded-lg text-center transition-all transform hover:scale-105 flex flex-col items-center justify-center min-h-[70px] sm:min-h-[85px] ${statusFilter === "productive" ? "bg-success text-success-foreground shadow-lg shadow-success/25" : "bg-gradient-to-br from-success/10 to-success/20 hover:from-success/20 hover:to-success/30 border border-success/30 text-success"}`}>
                  <div className="text-base sm:text-xl font-bold leading-tight">{productiveVisits}</div>
                  <div className="text-[9px] sm:text-xs font-medium opacity-80 mt-1 leading-tight">{t('visits.productive')}</div>
@@ -1253,18 +1342,30 @@ export const MyVisits = () => {
                  <div className="text-base sm:text-xl font-bold leading-tight">{unproductiveVisits}</div>
                  <div className="text-[9px] sm:text-xs font-medium opacity-80 mt-1 leading-tight">{t('visits.unproductive')}</div>
                </button>
+               
+               {/* Row 3: Total Order Value, Points Earned */}
+               <button onClick={() => navigate(`/today-summary?date=${selectedDate}`)} className="bg-gradient-to-r from-success/10 to-success/5 p-2 sm:p-3 rounded-lg border border-success/20 cursor-pointer hover:from-success/15 hover:to-success/10 transition-all flex flex-col items-center justify-center text-center min-h-[70px] sm:min-h-[85px]">
+                 <div className="text-base sm:text-xl font-bold text-success leading-tight">₹{Math.round(totalOrderValue).toLocaleString()}</div>
+                 <div className="text-[9px] sm:text-xs text-success/80 font-medium mt-1 leading-tight">{t('visits.totalOrderValue')}</div>
+               </button>
                <button onClick={() => setIsPointsDialogOpen(true)} className="bg-gradient-to-r from-amber-500/10 to-yellow-500/10 p-2 sm:p-3 rounded-lg border border-amber-500/20 cursor-pointer hover:from-amber-500/15 hover:to-yellow-500/15 transition-all flex flex-col items-center justify-center text-center min-h-[70px] sm:min-h-[85px]">
                  <div className="text-base sm:text-xl font-bold text-amber-600 leading-tight">{pointsEarnedToday}</div>
-                 <div className="text-[9px] sm:text-xs text-amber-600/80 font-medium mt-1 leading-tight">Points Earned Today</div>
+                 <div className="text-[9px] sm:text-xs text-amber-600/80 font-medium mt-1 leading-tight">Points Earned</div>
                </button>
              </div>
            </CardContent>
         </Card>
 
-        {/* AI Recommendations Section */}
-        {plannedBeats.length > 0 && currentBeatId && <div className="space-y-3">
-            <AIRecommendationBanner recommendations={retailerPriorityRecs} onGenerate={() => generateRetailerRecs('retailer_priority', currentBeatId)} onFeedback={provideRetailerFeedback} loading={retailerRecsLoading} type="retailer_priority" beatId={currentBeatId} />
-          </div>}
+        {/* Insights Panel - Target vs Actual & Priority Retailers */}
+        <InsightsPanel
+          userId={user?.id}
+          recommendations={retailerPriorityRecs}
+          onGenerateRecommendations={() => currentBeatId && generateRetailerRecs('retailer_priority', currentBeatId)}
+          onFeedback={provideRetailerFeedback}
+          recommendationsLoading={retailerRecsLoading}
+          beatId={currentBeatId}
+          hasBeat={plannedBeats.length > 0 && !!currentBeatId}
+        />
 
         {/* Enhanced Search and Filter Bar - Mobile Optimized */}
         <Card className="shadow-card bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
@@ -1441,9 +1542,19 @@ export const MyVisits = () => {
             <DialogHeader>
               <DialogTitle>{t('visits.timelineView')} - {format(timelineDate, 'MMM dd, yyyy')}</DialogTitle>
             </DialogHeader>
+            {isManager && (
+              <UserSelector 
+                selectedUserId={selectedViewUserId} 
+                onUserChange={setSelectedViewUserId}
+                showAllOption={false}
+                className="w-full sm:w-auto"
+              />
+            )}
             <TimelineView visits={timelineVisits} dayStart={timelineDayStart} selectedDate={timelineDate} onDateChange={date => {
             setTimelineDate(date);
-            loadTimelineVisits(date);
+            if (timelineTargetUserId) {
+              loadTimelineVisits(date, timelineTargetUserId);
+            }
           }} />
           </DialogContent>
         </Dialog>

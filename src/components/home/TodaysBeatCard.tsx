@@ -1,8 +1,12 @@
-import { MapPin, Users, CheckCircle, Clock, ChevronLeft, ChevronRight, TrendingUp, UserPlus, Zap } from "lucide-react";
+import { MapPin, Users, CheckCircle, Clock, TrendingUp, UserPlus, Zap, Sparkles, BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { format, addDays, subDays } from "date-fns";
+import { format } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
+import { useUserTargetProgress, TargetPeriod, TargetBasis } from "@/hooks/useUserTargetProgress";
+import { useAuth } from "@/hooks/useAuth";
+import { useState } from "react";
 
 interface TodaysBeatCardProps {
   beatPlan: any | null;
@@ -24,6 +28,27 @@ interface TodaysBeatCardProps {
   onDateChange: (date: Date) => void;
 }
 
+// Grouped period options - Past and Future
+const PAST_PERIOD_OPTIONS: { value: TargetPeriod; label: string }[] = [
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'last_week', label: 'Last Week' },
+  { value: 'last_month', label: 'Last Month' },
+  { value: 'last_quarter', label: 'Last Quarter' },
+];
+
+const FUTURE_PERIOD_OPTIONS: { value: TargetPeriod; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'this_week', label: 'This Week' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'this_quarter', label: 'This Quarter' },
+  { value: 'this_year', label: 'This FY' },
+];
+
+const BASIS_OPTIONS: { value: TargetBasis; label: string }[] = [
+  { value: 'quantity', label: 'Quantity' },
+  { value: 'revenue', label: 'Revenue' },
+];
+
 export const TodaysBeatCard = ({ 
   beatPlan, 
   beatName,
@@ -37,24 +62,15 @@ export const TodaysBeatCard = ({
   onDateChange
 }: TodaysBeatCardProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [targetPeriod, setTargetPeriod] = useState<TargetPeriod>('today');
+  const [targetBasis, setTargetBasis] = useState<TargetBasis>('quantity');
 
-  const handlePrevDay = () => {
-    onDateChange(subDays(selectedDate, 1));
-  };
-
-  const handleNextDay = () => {
-    onDateChange(addDays(selectedDate, 1));
-  };
-
-  const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-  const isFuture = selectedDate > new Date();
-
-  // Calculate revenue progress
-  const revenueProgress = revenueTarget > 0 
-    ? Math.min(Math.round((revenueAchieved / revenueTarget) * 100), 100)
-    : 0;
-  
-  const revenueGap = Math.max(revenueTarget - revenueAchieved, 0);
+  const { target, actual, progress, gap, unit, isLoading: targetLoading } = useUserTargetProgress(
+    user?.id,
+    targetPeriod,
+    targetBasis
+  );
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -80,39 +96,37 @@ export const TodaysBeatCard = ({
     }).format(amount);
   };
 
+  const formatQuantity = (qty: number, unitLabel: string) => {
+    // Quantity should always show the actual unit (Kg/Units), not "K" short-format
+    return `${qty.toLocaleString('en-IN', { maximumFractionDigits: 1 })} ${unitLabel}`;
+  };
+
+  const formatValue = (value: number) => {
+    if (targetBasis === 'revenue') {
+      return formatCurrency(value);
+    }
+    return formatQuantity(value, unit);
+  };
+
+  const formatGapValue = (value: number) => {
+    const absValue = Math.abs(value);
+    if (targetBasis === 'revenue') {
+      return formatCurrencyNoDecimal(absValue);
+    }
+    return formatQuantity(absValue, unit);
+  };
+
   const displayBeatName = beatName || beatPlan?.beat_name || 'Not Planned';
+
+  // Get display label for current period
+  const getPeriodLabel = (period: TargetPeriod) => {
+    const allOptions = [...PAST_PERIOD_OPTIONS, ...FUTURE_PERIOD_OPTIONS];
+    return allOptions.find(opt => opt.value === period)?.label || period;
+  };
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 via-background to-primary/5 shadow-lg overflow-hidden">
       <CardContent className="p-5 space-y-5">
-        {/* Date Navigation Header */}
-        <div className="flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handlePrevDay}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">
-              {isToday ? "Today's Beat" : format(selectedDate, 'MMM dd, yyyy')}
-            </p>
-          </div>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={handleNextDay}
-            disabled={isFuture}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-
         {/* Beat Name */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -126,16 +140,62 @@ export const TodaysBeatCard = ({
           </div>
         </div>
 
-        {/* Revenue Target Progress */}
+        {/* Target Progress Section */}
         <div className="space-y-3 p-4 rounded-xl bg-gradient-to-br from-primary/5 to-transparent border border-primary/10">
+          {/* Period & Basis Selectors */}
+          <div className="flex gap-2">
+            <Select value={targetPeriod} onValueChange={(v) => setTargetPeriod(v as TargetPeriod)}>
+              <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectValue placeholder="Period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-muted-foreground uppercase tracking-wider">Current / Future</SelectLabel>
+                  {FUTURE_PERIOD_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] text-muted-foreground uppercase tracking-wider">Past</SelectLabel>
+                  {PAST_PERIOD_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select value={targetBasis} onValueChange={(v) => setTargetBasis(v as TargetBasis)}>
+              <SelectTrigger className="h-8 text-xs w-28">
+                <SelectValue placeholder="Basis" />
+              </SelectTrigger>
+              <SelectContent>
+                {BASIS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Target Display - Fixed target for period */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Revenue Today</p>
-              <p className="text-sm font-bold text-foreground">{formatCurrency(revenueAchieved)}</p>
+              <p className="text-xs text-muted-foreground mb-0.5">
+                Target ({getPeriodLabel(targetPeriod)})
+              </p>
+              <p className="text-sm font-bold text-foreground">
+                {targetLoading ? '...' : formatValue(target)}
+              </p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-muted-foreground mb-0.5">Progress</p>
-              <p className="text-sm font-bold text-success">{revenueProgress}%</p>
+              <p className="text-xs text-muted-foreground mb-0.5">Achievement</p>
+              <p className={`text-sm font-bold ${progress >= 100 ? 'text-success' : progress >= 50 ? 'text-warning' : 'text-destructive'}`}>
+                {targetLoading ? '...' : `${progress}%`}
+              </p>
             </div>
           </div>
           
@@ -144,32 +204,117 @@ export const TodaysBeatCard = ({
             <div className="absolute inset-0 flex items-center">
               <div className="w-full h-2 bg-muted/50 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-gradient-to-r from-success to-success/80 rounded-full transition-all duration-500"
-                  style={{ width: `${revenueProgress}%` }}
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    progress >= 100 ? 'bg-gradient-to-r from-success to-success/80' :
+                    progress >= 50 ? 'bg-gradient-to-r from-warning to-warning/80' :
+                    'bg-gradient-to-r from-destructive to-destructive/80'
+                  }`}
+                  style={{ width: `${Math.min(progress, 100)}%` }}
                 />
               </div>
             </div>
 
-            {/* Pin Marker - positioned above the line */}
+            {/* Pin Marker - positioned above the line showing Actual */}
             <div 
               className="absolute -translate-x-1/2 z-10 transition-all duration-500"
-              style={{ left: `${Math.max(revenueProgress, 5)}%`, top: '-18px' }}
+              style={{ left: `${Math.min(Math.max(progress, 5), 95)}%`, top: '-18px' }}
             >
               <div className="flex flex-col items-center">
                 <div className="bg-primary text-primary-foreground px-2.5 py-1 rounded-lg shadow-lg text-[10px] font-bold whitespace-nowrap border-2 border-background">
-                  {formatCurrency(revenueAchieved)}
+                  {targetLoading ? '...' : formatValue(actual)}
                 </div>
                 <MapPin className="h-5 w-5 text-primary drop-shadow-lg fill-primary -mt-0.5" />
               </div>
             </div>
           </div>
 
-          {/* Gap indicator - highlighted below the line, outside the relative container */}
-          {revenueGap > 0 && (
-            <div className="flex justify-end mt-2">
-              <div className="text-sm font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-md border border-primary/20">
-                {formatCurrencyNoDecimal(revenueGap)} to go
+          {/* Gap / Overachieved indicator with Target Advisor and Performance buttons */}
+          {gap < 0 && !targetLoading && target > 0 && (
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-md border border-primary/20">
+                  Gap: {formatGapValue(gap)} to go
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/target-advisor?period=${targetPeriod}`)}
+                  className="text-xs h-8 gap-1"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Target Advisor
+                </Button>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/performance-dashboard')}
+                className="text-xs h-8 gap-1 w-full"
+              >
+                <BarChart3 className="h-3 w-3" />
+                View Performance
+              </Button>
+            </div>
+          )}
+
+          {gap > 0 && !targetLoading && target > 0 && (
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-bold text-success bg-success/10 px-3 py-1.5 rounded-md border border-success/20">
+                  Overachieved by +{formatGapValue(gap)}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/target-advisor?period=${targetPeriod}`)}
+                  className="text-xs h-8 gap-1"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Target Advisor
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/performance-dashboard')}
+                className="text-xs h-8 gap-1 w-full"
+              >
+                <BarChart3 className="h-3 w-3" />
+                View Performance
+              </Button>
+            </div>
+          )}
+
+          {gap === 0 && !targetLoading && target > 0 && (
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="text-sm font-bold text-success bg-success/10 px-3 py-1.5 rounded-md border border-success/20 text-center">
+                Target Achieved! 🎉
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/performance-dashboard')}
+                className="text-xs h-8 gap-1 w-full"
+              >
+                <BarChart3 className="h-3 w-3" />
+                View Performance
+              </Button>
+            </div>
+          )}
+          {target === 0 && !targetLoading && (
+            <div className="flex items-center justify-between mt-2">
+              <div className="text-xs text-muted-foreground italic">
+                No target set in My Profile
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/performance-dashboard')}
+                className="text-xs h-8 gap-1"
+              >
+                <BarChart3 className="h-3 w-3" />
+                Performance
+              </Button>
             </div>
           )}
         </div>

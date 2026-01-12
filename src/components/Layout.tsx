@@ -1,18 +1,41 @@
 import { ReactNode, useEffect, memo, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { Navbar } from "./Navbar";
 import { ChatWidget } from "./chat/ChatWidget";
 import { useMasterDataCache } from "@/hooks/useMasterDataCache";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { useStartupCleanup } from "@/hooks/useStartupCleanup";
+import { periodicMemoryCleanup, initMemoryPressureHandler } from "@/utils/memoryManager";
 
 interface LayoutProps {
   children: ReactNode;
 }
 
+// Initialize memory pressure handlers once
+let memoryHandlersInitialized = false;
+
 export const Layout = memo(({ children }: LayoutProps) => {
   const { cacheAllMasterData, isOnline } = useMasterDataCache();
   const { processSyncQueue } = useOfflineSync();
+  const location = useLocation();
   const hasCachedRef = useRef(false);
   const wasOfflineRef = useRef(false);
+  
+  // Run startup cleanup routines (orphan orders, stale cache, etc.)
+  useStartupCleanup();
+
+  // Initialize memory pressure handlers once per app lifecycle
+  useEffect(() => {
+    if (!memoryHandlersInitialized) {
+      memoryHandlersInitialized = true;
+      initMemoryPressureHandler();
+    }
+  }, []);
+
+  // Periodic memory cleanup on route changes to prevent memory bloat
+  useEffect(() => {
+    periodicMemoryCleanup();
+  }, [location.pathname]);
 
   // Auto-cache master data when online - only once per session
   useEffect(() => {

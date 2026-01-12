@@ -16,9 +16,12 @@ interface SnapshotData {
     unproductive: number;
     totalOrders: number;
     totalOrderValue: number;
+    totalPlanned?: number; // Total planned visits (doesn't change)
   };
   currentBeatName: string;
   timestamp: number;
+  pointsTotal?: number; // Total points earned for the day
+  pointsByRetailer?: Array<[string, { name: string; points: number; visitId: string | null }]>; // Points by retailer
 }
 
 const SNAPSHOT_KEY_PREFIX = 'myvisits_snapshot_';
@@ -43,8 +46,11 @@ export const saveMyVisitsSnapshot = async (
       unproductive: number;
       totalOrders: number;
       totalOrderValue: number;
+      totalPlanned?: number;
     };
     currentBeatName: string;
+    pointsTotal?: number;
+    pointsByRetailer?: Array<[string, { name: string; points: number; visitId: string | null }]>;
   }
 ): Promise<void> => {
   try {
@@ -410,28 +416,39 @@ export const updateBeatPlanInSnapshot = async (
 };
 
 // Clear old snapshots (keep only last 7 days)
-export const cleanupOldSnapshots = async (userId: string): Promise<void> => {
+// Can be called with userId to clean specific user, or without to clean all old snapshots
+export const cleanupOldSnapshots = async (userId?: string): Promise<void> => {
   try {
     const { keys } = await Preferences.keys();
-    const userPrefix = `${SNAPSHOT_KEY_PREFIX}${userId}_`;
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let cleaned = 0;
     
     for (const key of keys) {
-      if (key.startsWith(userPrefix)) {
+      // If userId provided, only clean that user's snapshots
+      const shouldCheck = userId 
+        ? key.startsWith(`${SNAPSHOT_KEY_PREFIX}${userId}_`)
+        : key.startsWith(SNAPSHOT_KEY_PREFIX);
+      
+      if (shouldCheck) {
         const { value } = await Preferences.get({ key });
         if (value) {
           try {
             const snapshot: SnapshotData = JSON.parse(value);
             if (snapshot.timestamp < sevenDaysAgo) {
               await Preferences.remove({ key });
-              console.log('📸 [SNAPSHOT] Cleaned up old snapshot:', key);
+              cleaned++;
             }
           } catch {
             // Invalid JSON, remove it
             await Preferences.remove({ key });
+            cleaned++;
           }
         }
       }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`📸 [SNAPSHOT] Cleaned up ${cleaned} old snapshots`);
     }
   } catch (error) {
     console.error('[SNAPSHOT] Cleanup failed:', error);

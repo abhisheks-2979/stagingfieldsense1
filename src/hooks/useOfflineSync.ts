@@ -40,16 +40,16 @@ export function useOfflineSync() {
         return uuidRegex.test(id);
       };
 
-      // Clean up stale sync items (older than 1 hour OR 5+ retries)
+      // Clean up stale sync items (older than 15 mins OR 2+ retries)
       const cleanupStaleSyncItems = async (queue: any[]): Promise<any[]> => {
         const now = Date.now();
-        const oneHourAgo = now - (60 * 60 * 1000);
+        const fifteenMinutesAgo = now - (15 * 60 * 1000);
         const cleanQueue: any[] = [];
         
         for (const item of queue) {
-          const isStale = item.timestamp && item.timestamp < oneHourAgo;
-          // Keep retry behavior consistent with the main loop (max 5 attempts)
-          const tooManyRetries = (item.retryCount || 0) >= 5;
+          const isStale = item.timestamp && item.timestamp < fifteenMinutesAgo;
+          // Keep retry behavior consistent (max 2 attempts before cleanup)
+          const tooManyRetries = (item.retryCount || 0) >= 2;
           
           if (isStale || tooManyRetries) {
             console.log(`🧹 Removing stale sync item: ${item.action}, age=${Math.round((now - item.timestamp) / 60000)}min, retries=${item.retryCount || 0}`);
@@ -116,9 +116,12 @@ export function useOfflineSync() {
       let syncQueue = await offlineStorage.getSyncQueue();
       syncQueue = await cleanupStaleSyncItems(syncQueue);
       
-      // Step 2: Only rebuild queue if there's genuinely nothing pending
-      await ensureNoOrderVisitsQueued(syncQueue);
-      syncQueue = await offlineStorage.getSyncQueue();
+      // Step 2: Only rebuild queue if there are NO existing items
+      // This prevents re-adding items that are about to be processed
+      if (syncQueue.length === 0) {
+        await ensureNoOrderVisitsQueued(syncQueue);
+        syncQueue = await offlineStorage.getSyncQueue();
+      }
 
       if (syncQueue.length === 0) {
         isSyncingRef.current = false;
@@ -167,30 +170,23 @@ export function useOfflineSync() {
             lastError: errorMsg
           };
           
-          // Keep in queue for retry (max 5 attempts)
-          if (updatedItem.retryCount < 5) {
+          // Keep in queue for retry (max 2 attempts only)
+          if (updatedItem.retryCount < 2) {
             await offlineStorage.save(STORES.SYNC_QUEUE, updatedItem);
           } else {
-            // After 5 failed attempts, remove from queue
-            console.error(`⛔ Removing item after 5 failed attempts:`, item.action);
+            // After 2 failed attempts, remove from queue to avoid stuck items
+            console.error(`⛔ Removing item after 2 failed attempts:`, item.action);
             await offlineStorage.delete(STORES.SYNC_QUEUE, item.id);
           }
         }
       }
 
-      // Dispatch sync complete event to refresh all VisitCards
+      // SILENT SYNC: Per offline-first architecture, sync should NOT dispatch UI refresh events
+      // The UI already reflects local state. Sync only backs up data to server.
+      // REMOVED: syncComplete and visitDataChanged event dispatches
+      
       if (successCount > 0) {
-        console.log('📢 Dispatching syncComplete event to refresh UI');
-        window.dispatchEvent(new Event('syncComplete'));
-        
-        // Also dispatch visitDataChanged after a short delay to catch all updates
-        // Reduced from 500ms to 200ms for faster UI refresh
-        setTimeout(() => {
-          console.log('📢 Dispatching visitDataChanged after sync');
-          window.dispatchEvent(new Event('visitDataChanged'));
-        }, 200);
-        
-        // Sync van stock after all orders are synced - run once after all items processed
+        // Only run van stock sync silently in background
         console.log('🚚 Running final van stock sync after sync complete...');
         syncOrdersToVanStock(getTodayDateString()).catch(err => {
           console.error('Error in final van stock sync:', err);
@@ -198,11 +194,15 @@ export function useOfflineSync() {
       }
 
       // SILENT sync - no toasts, no notifications
-      // Data refresh happens via syncComplete event dispatch in SyncStatusIndicator
       if (successCount > 0 && failCount === 0) {
         console.log(`✅ Silent sync complete: ${successCount} items synced`);
       } else if (failCount > 0) {
         console.log(`⚠️ Silent sync partial: ${successCount} succeeded, ${failCount} failed`);
+      }
+      
+      // Force update sync queue indicator after processing (bypass throttle)
+      if (successCount > 0 || failCount > 0) {
+        window.dispatchEvent(new Event('syncQueueUpdated'));
       }
     } catch (error) {
       console.error('❌ Error processing sync queue:', error);
@@ -325,15 +325,10 @@ export function useOfflineSync() {
           );
           console.log('✅ Visit status cache updated for retailer:', noOrderRetailerId);
           
-          // Dispatch events to update UI
-          window.dispatchEvent(new CustomEvent('visitStatusChanged', {
-            detail: { visitId: effectiveNoOrderVisitId, status: 'unproductive', retailerId: noOrderRetailerId, noOrderReason }
-          }));
-        
-        setTimeout(() => {
-          console.log('✅ Dispatching visitDataChanged for unproductive count update');
-          window.dispatchEvent(new Event('visitDataChanged'));
-        }, 500);
+          // REMOVED: Event dispatches after individual sync items
+          // Per offline-first architecture: UI was already updated locally when the action was queued
+          // Sync only backs up to server, no UI refresh needed
+          console.log('✅ No-order visit synced silently to database');
         
         } catch (noOrderError) {
           console.error('❌ Error in UPDATE_VISIT_NO_ORDER:', noOrderError);
@@ -378,6 +373,9 @@ export function useOfflineSync() {
           }
           
           // New format with separate order and items
+          let actualOrderId = offlineOrderId; // Use offline ID as fallback
+          
+          // Try to insert order
           const { data: insertedOrder, error: orderError } = await supabase
             .from('orders')
             .insert(orderToInsert)
@@ -387,27 +385,104 @@ export function useOfflineSync() {
           // Handle duplicate key error gracefully
           if (orderError) {
             if (orderError.code === '23505') {
-              // Duplicate key error - order already exists, treat as success
-              console.log('⚠️ Duplicate order detected via DB constraint, treating as success');
-              return;
+              // Duplicate key error - order already exists
+              // Find the existing order to get its ID for items
+              console.log('⚠️ Duplicate order detected, checking for missing items...');
+              
+              // Try to find existing order by idempotency_key or retailer+date
+              let existingOrderId = null;
+              if (orderToInsert.idempotency_key) {
+                const { data: existing } = await supabase
+                  .from('orders')
+                  .select('id')
+                  .eq('idempotency_key', orderToInsert.idempotency_key)
+                  .single();
+                existingOrderId = existing?.id;
+              }
+              
+              if (!existingOrderId && orderToInsert.retailer_id) {
+                // Fallback: find by retailer and approximate time
+                const { data: existing } = await supabase
+                  .from('orders')
+                  .select('id')
+                  .eq('retailer_id', orderToInsert.retailer_id)
+                  .gte('created_at', new Date(Date.now() - 3600000).toISOString()) // Last hour
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .single();
+                existingOrderId = existing?.id;
+              }
+              
+              if (existingOrderId) {
+                actualOrderId = existingOrderId;
+              }
+              // Don't return here - continue to ensure items exist
+            } else {
+              throw orderError;
             }
-            throw orderError;
+          } else {
+            actualOrderId = insertedOrder.id;
           }
           
-          // Use the new database-generated order ID for items
-          const itemsWithCorrectOrderId = data.items.map((item: any) => {
-            // Strip variant_id if the column doesn't exist
-            const { variant_id, ...itemWithoutVariant } = item;
-            return {
-              ...itemWithoutVariant,
-              order_id: insertedOrder.id
-            };
-          });
-          
-          const { error: itemsError } = await supabase
+          // ALWAYS check and insert items (even if order existed)
+          // First check if items already exist for this order
+          const { data: existingItems } = await supabase
             .from('order_items')
-            .insert(itemsWithCorrectOrderId);
-          if (itemsError) throw itemsError;
+            .select('id')
+            .eq('order_id', actualOrderId)
+            .limit(1);
+          
+          if (!existingItems || existingItems.length === 0) {
+            // Items don't exist - insert them
+            const itemsWithCorrectOrderId = data.items.map((item: any) => {
+              // Strip variant_id if the column doesn't exist
+              const { variant_id, ...itemWithoutVariant } = item;
+              return {
+                ...itemWithoutVariant,
+                order_id: actualOrderId
+              };
+            });
+            
+            const { error: itemsError } = await supabase
+              .from('order_items')
+              .insert(itemsWithCorrectOrderId);
+            
+            // Ignore duplicate errors for items
+            if (itemsError && itemsError.code !== '23505') {
+              throw itemsError;
+            }
+            
+            console.log('✅ Order items synced for order:', actualOrderId);
+          }
+          
+          // POST-SYNC CLEANUP: Remove synced order from local storage to prevent duplicates
+          // Since the order now exists in DB, we don't need to keep it locally
+          try {
+            // Delete the offline order by its original ID
+            if (offlineOrderId) {
+              await offlineStorage.delete(STORES.ORDERS, offlineOrderId);
+              console.log('🧹 [orderCleanup] Removed synced order from local storage:', offlineOrderId);
+            }
+            
+            // Also try to delete by actualOrderId in case it was saved with DB ID
+            if (actualOrderId && actualOrderId !== offlineOrderId) {
+              await offlineStorage.delete(STORES.ORDERS, actualOrderId);
+            }
+            
+            // Clean by idempotency_key as well
+            if (data.order?.idempotency_key) {
+              const cachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+              const matchingOrders = cachedOrders.filter((o: any) => 
+                o.idempotency_key === data.order.idempotency_key
+              );
+              for (const matchingOrder of matchingOrders) {
+                await offlineStorage.delete(STORES.ORDERS, matchingOrder.id);
+                console.log('🧹 [orderCleanup] Removed order by idempotency_key:', matchingOrder.id);
+              }
+            }
+          } catch (cacheErr) {
+            console.warn('⚠️ Post-sync cleanup failed (non-fatal):', cacheErr);
+          }
 
           // Update retailer's pending_amount and last_order_date
           const orderRetailerId = data.order?.retailer_id;
@@ -641,12 +716,33 @@ export function useOfflineSync() {
         
       case 'CREATE_VISIT_LOG':
         console.log('Syncing retailer visit log:', data);
-        // Remove the offline-generated ID before inserting to let Supabase generate a new one
-        const { id: offlineId, ...visitLogData } = data;
-        const { error: visitLogError } = await supabase
+        // Check if log already exists for this retailer/user/date to prevent duplicates
+        const { data: existingLogs, error: checkLogError } = await supabase
           .from('retailer_visit_logs')
-          .insert(visitLogData);
-        if (visitLogError) throw visitLogError;
+          .select('id')
+          .eq('user_id', data.user_id)
+          .eq('retailer_id', data.retailer_id)
+          .eq('visit_date', data.visit_date)
+          .limit(1);
+        
+        if (!checkLogError && existingLogs && existingLogs.length > 0) {
+          console.log('⚠️ Visit log already exists, updating instead:', existingLogs[0].id);
+          // Update existing log instead of creating duplicate
+          await supabase
+            .from('retailer_visit_logs')
+            .update({
+              end_time: data.end_time,
+              time_spent_seconds: data.time_spent_seconds
+            })
+            .eq('id', existingLogs[0].id);
+        } else {
+          // Remove the offline-generated ID before inserting to let Supabase generate a new one
+          const { id: offlineId, ...visitLogData } = data;
+          const { error: visitLogError } = await supabase
+            .from('retailer_visit_logs')
+            .insert(visitLogData);
+          if (visitLogError) throw visitLogError;
+        }
         
         // Remove from offline storage after successful sync
         try {
@@ -654,6 +750,53 @@ export function useOfflineSync() {
           console.log('✅ Removed synced visit log from offline storage');
         } catch (deleteError) {
           console.log('Note: Could not remove visit log from offline storage:', deleteError);
+        }
+        break;
+        
+      case 'UPDATE_VISIT_LOG':
+        console.log('Syncing visit log update:', data);
+        // CRITICAL: Use the end_time from the queued data (captured when action occurred)
+        // NOT the current sync processing time
+        const queuedEndTime = data.end_time;
+        const queuedTimeSpent = data.time_spent_seconds;
+        
+        if (!queuedEndTime) {
+          console.log('⚠️ No end_time in queued data, skipping');
+          break;
+        }
+        
+        // Find the existing log by user/retailer/date and update
+        const { data: logsToUpdate, error: findLogError } = await supabase
+          .from('retailer_visit_logs')
+          .select('id, end_time')
+          .eq('user_id', data.user_id)
+          .eq('retailer_id', data.retailer_id)
+          .eq('visit_date', data.visit_date)
+          .order('start_time', { ascending: false })
+          .limit(1);
+        
+        if (findLogError) throw findLogError;
+        
+        if (logsToUpdate && logsToUpdate.length > 0) {
+          const existingEndTime = logsToUpdate[0].end_time;
+          
+          // Only update if our queued end_time is newer than what's in DB
+          // This prevents older queue items from overwriting newer data
+          if (!existingEndTime || new Date(queuedEndTime) > new Date(existingEndTime)) {
+            const { error: updateLogError } = await supabase
+              .from('retailer_visit_logs')
+              .update({
+                end_time: queuedEndTime,
+                time_spent_seconds: queuedTimeSpent
+              })
+              .eq('id', logsToUpdate[0].id);
+            if (updateLogError) throw updateLogError;
+            console.log('✅ Visit log updated in database with queued timestamp:', queuedEndTime);
+          } else {
+            console.log('⏭️ Skipping update - DB has newer end_time than queued');
+          }
+        } else {
+          console.log('⚠️ No existing log found to update, skipping');
         }
         break;
         
@@ -703,10 +846,21 @@ export function useOfflineSync() {
         
       case 'CREATE_ATTENDANCE':
         console.log('Syncing attendance check-in:', data);
-        const { error: attendanceError } = await supabase
+        const { data: syncedAttendance, error: attendanceError } = await supabase
           .from('attendance')
-          .insert(data);
+          .insert(data)
+          .select()
+          .single();
         if (attendanceError) throw attendanceError;
+        
+        // Update offline storage with real database ID
+        if (syncedAttendance) {
+          await offlineStorage.save(STORES.ATTENDANCE, { 
+            ...syncedAttendance, 
+            cached_at: new Date().toISOString() 
+          });
+          console.log('✅ Attendance synced and cache updated with real ID');
+        }
         break;
         
       case 'UPDATE_ATTENDANCE':

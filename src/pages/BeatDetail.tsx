@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, Phone, Store, Calendar, TrendingUp, CalendarDays, Edit2, BarChart, Trash2, Sparkles, Target, Shield, AlertTriangle, Lightbulb, Users, Package, DollarSign, Clock, Zap, Search, IndianRupee } from "lucide-react";
-import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { ArrowLeft, MapPin, Phone, Store, Calendar, TrendingUp, CalendarDays, Edit2, BarChart, Trash2, Sparkles, Target, Shield, AlertTriangle, Lightbulb, Users, Package, DollarSign, Clock, Zap, Search, IndianRupee, Info, ThumbsUp, ThumbsDown, CheckCircle } from "lucide-react";
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,11 +14,14 @@ import { useBeatMetrics } from "@/hooks/useBeatMetrics";
 import { moveToRecycleBin } from "@/utils/recycleBinUtils";
 import { EditBeatModal } from "@/components/EditBeatModal";
 import { BeatAnalyticsModal } from "@/components/BeatAnalyticsModal";
-import { useRecommendations } from "@/hooks/useRecommendations";
+import { useRecommendations, Recommendation } from "@/hooks/useRecommendations";
 import { RetailerDetailModal } from "@/components/RetailerDetailModal";
 import { BeatRetailerExport } from "@/components/BeatRetailerExport";
+import { TargetVsActualCard } from "@/components/performance/TargetVsActualCard";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface BeatDetailData {
+  id?: string; // Database UUID
   beat_id: string;
   beat_name: string;
   category?: string;
@@ -37,6 +40,7 @@ interface BeatDetailData {
     priority?: string;
     last_visit_date?: string;
     order_value?: number;
+    fyOrderValue?: number;
   }>;
 }
 
@@ -59,6 +63,7 @@ export const BeatDetail = () => {
   const [retailerSearch, setRetailerSearch] = useState("");
   const [selectedRetailer, setSelectedRetailer] = useState<any>(null);
   const [showRetailerModal, setShowRetailerModal] = useState(false);
+  const [beatQueryId, setBeatQueryId] = useState<string>(id || "");
 
   const filteredRetailers = useMemo(() => {
     if (!beatData?.retailers) return [];
@@ -94,26 +99,32 @@ export const BeatDetail = () => {
     retailersByMonth: []
   });
   
-  const { metrics, loading: metricsLoading } = useBeatMetrics(id || '', user?.id || '');
-  const { generateRecommendation } = useRecommendations('beat_visit');
+  const { metrics, loading: metricsLoading } = useBeatMetrics(beatQueryId || "", user?.id || "");
+  const { recommendations, generateRecommendation, provideFeedback, loading: recommendationsLoading } = useRecommendations('beat_visit', beatData?.id);
 
+  useEffect(() => {
+    if (id) setBeatQueryId(id);
+  }, [id]);
   useEffect(() => {
     if (!user || !id) return;
 
     const fetchBeatData = async () => {
       try {
         setLoading(true);
-        
-        // Fetch beat from beats table
+
+        // Fetch beat from beats table (support both beats.id UUID and beats.beat_id code)
         const { data: beat, error: beatError } = await supabase
           .from('beats')
           .select('*')
-          .eq('beat_id', id)
-          .single();
+          .or(`id.eq.${id},beat_id.eq.${id}`)
+          .maybeSingle();
 
         if (beatError && beatError.code !== 'PGRST116') {
           console.error('Error fetching beat:', beatError);
         }
+
+        const resolvedBeatId = beat?.beat_id ?? id;
+        setBeatQueryId(resolvedBeatId);
 
         // If not found in beats, try beat_plans
         let beatInfo: any = beat;
@@ -121,7 +132,7 @@ export const BeatDetail = () => {
           const { data: beatPlan, error: beatPlanError } = await supabase
             .from('beat_plans')
             .select('beat_id, beat_name, beat_data, created_at')
-            .eq('beat_id', id)
+            .eq('beat_id', resolvedBeatId)
             .eq('user_id', user.id)
             .single();
 
@@ -150,7 +161,7 @@ export const BeatDetail = () => {
         const { data: retailers, error: retailersError } = await supabase
           .from('retailers')
           .select('id, name, address, phone, category, priority, last_visit_date, order_value')
-          .eq('beat_id', id)
+          .eq('beat_id', resolvedBeatId)
           .eq('user_id', user.id);
 
         if (retailersError) {
@@ -158,15 +169,48 @@ export const BeatDetail = () => {
           throw retailersError;
         }
 
+        // Calculate FY order value for each retailer
+        const retailerIds = retailers?.map(r => r.id) || [];
+        let retailersWithFY = retailers || [];
+
+        if (retailerIds.length > 0) {
+          // Determine current FY (April to March)
+          const now = new Date();
+          const currentYear = now.getFullYear();
+          const currentMonth = now.getMonth(); // 0-indexed
+          const fyStartYear = currentMonth >= 3 ? currentYear : currentYear - 1; // April is month 3
+          const fyStart = new Date(fyStartYear, 3, 1); // April 1st
+
+          const { data: fyOrders } = await supabase
+            .from('orders')
+            .select('retailer_id, total_amount')
+            .in('retailer_id', retailerIds)
+            .eq('status', 'confirmed')
+            .gte('created_at', fyStart.toISOString());
+
+          // Aggregate FY order value per retailer
+          const fyOrderMap = new Map<string, number>();
+          fyOrders?.forEach(order => {
+            const current = fyOrderMap.get(order.retailer_id) || 0;
+            fyOrderMap.set(order.retailer_id, current + (order.total_amount || 0));
+          });
+
+          retailersWithFY = (retailers || []).map(r => ({
+            ...r,
+            fyOrderValue: fyOrderMap.get(r.id) || 0
+          }));
+        }
+
         // Calculate performance stats
-        await calculatePerformanceStats(id, user.id, retailers || []);
+        await calculatePerformanceStats(resolvedBeatId, user.id, retailersWithFY);
 
         // Generate SWOT analysis
-        generateSWOT(retailers || [], metrics);
+        generateSWOT(retailersWithFY, metrics);
 
         setBeatData({
-          beat_id: id,
-          beat_name: beatInfo?.beat_name || id,
+          id: beat?.id, // Database UUID
+          beat_id: resolvedBeatId,
+          beat_name: beatInfo?.beat_name || resolvedBeatId,
           category: beatInfo?.category || 'General',
           created_at: beatInfo?.created_at || new Date().toISOString(),
           travel_allowance: beat?.travel_allowance,
@@ -174,7 +218,7 @@ export const BeatDetail = () => {
           average_time_minutes: beat?.average_time_minutes,
           territory_id: beat?.territory_id,
           territory_name: territoryName,
-          retailers: retailers || []
+          retailers: retailersWithFY
         });
 
       } catch (error) {
@@ -224,10 +268,10 @@ export const BeatDetail = () => {
 
       const lastVisitedDate = lastBeatPlan?.[0]?.plan_date || null;
 
-      // Fetch all orders for lifetime value
+      // Fetch all orders for lifetime value (include id for order_items query)
       const { data: allOrders } = await supabase
         .from('orders')
-        .select('total_amount, created_at, retailer_id')
+        .select('id, total_amount, created_at, retailer_id')
         .in('retailer_id', retailerIds.length > 0 ? retailerIds : ['none'])
         .eq('status', 'confirmed');
 
@@ -564,15 +608,6 @@ export const BeatDetail = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowAnalytics(true)}
-              className="flex items-center gap-2"
-            >
-              <BarChart size={16} />
-              Analytics
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
               onClick={handleAIInsights}
               className="flex items-center gap-2 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20"
             >
@@ -621,13 +656,25 @@ export const BeatDetail = () => {
                 <div className="text-lg font-bold text-orange-600">{performanceStats.totalVisits}</div>
                 <div className="text-xs text-muted-foreground">Beat Visits (3M)</div>
               </div>
-              <div className="text-center p-3 bg-background rounded-lg shadow-sm">
-                <Target className="h-5 w-5 mx-auto mb-1 text-cyan-600" />
-                <div className="text-sm font-bold text-cyan-600">
-                  {performanceStats.currentMonthConversion.toFixed(0)}% / {performanceStats.previousMonthConversion.toFixed(0)}%
-                </div>
-                <div className="text-xs text-muted-foreground">Conversion (Curr/Prev)</div>
-              </div>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="text-center p-3 bg-background rounded-lg shadow-sm cursor-help">
+                      <Target className="h-5 w-5 mx-auto mb-1 text-cyan-600" />
+                      <div className="text-sm font-bold text-cyan-600">
+                        {performanceStats.currentMonthConversion.toFixed(0)}% / {performanceStats.previousMonthConversion.toFixed(0)}%
+                      </div>
+                      <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                        Visit Conversion
+                        <Info size={10} className="text-muted-foreground" />
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs max-w-48">% of visits that were productive (completed with orders) - Current month vs Previous month</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <div className="text-center p-3 bg-background rounded-lg shadow-sm">
                 <TrendingUp className="h-5 w-5 mx-auto mb-1 text-emerald-600" />
                 <div className={`text-lg font-bold ${performanceStats.growthRate >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>
@@ -638,6 +685,72 @@ export const BeatDetail = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* AI Insights Display */}
+        {recommendations.length > 0 && (
+          <Card className="shadow-card border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Sparkles size={20} className="text-primary" />
+                AI Insights
+                <Badge variant="secondary" className="ml-2">{recommendations.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {recommendations.slice(0, 3).map((rec: Recommendation) => (
+                <div key={rec.id} className="p-3 bg-background rounded-lg border shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="text-xs">
+                          {Math.round(rec.confidence_score * 100)}% confidence
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(rec.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium">{rec.reasoning}</p>
+                      {rec.recommendation_data && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {rec.recommendation_data.action_items && (
+                            <ul className="list-disc list-inside space-y-1">
+                              {(rec.recommendation_data.action_items as string[]).slice(0, 3).map((item: string, idx: number) => (
+                                <li key={idx}>{item}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => provideFeedback(rec.id, 'like')}
+                        disabled={rec.feedback?.feedback_type === 'like'}
+                      >
+                        <ThumbsUp size={14} className={rec.feedback?.feedback_type === 'like' ? 'text-green-600' : ''} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => provideFeedback(rec.id, 'implemented')}
+                        disabled={rec.feedback?.feedback_type === 'implemented'}
+                      >
+                        <CheckCircle size={14} className={rec.feedback?.feedback_type === 'implemented' ? 'text-primary' : ''} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Target vs Actual Section */}
+        <TargetVsActualCard entityType="beat" entityId={beatData?.id || ''} beatTextId={beatData?.beat_id} userId={user?.id} />
 
         {/* Beat Info Card */}
         <Card className="shadow-card">
@@ -682,22 +795,22 @@ export const BeatDetail = () => {
                   <p className="font-semibold">{beatData.territory_name}</p>
                 </div>
               )}
-              {beatData.travel_allowance && (
+              {beatData.travel_allowance !== undefined && beatData.travel_allowance !== null && Number(beatData.travel_allowance) > 0 && (
                 <div>
                   <p className="text-xs text-muted-foreground">Travel Allowance</p>
-                  <p className="font-semibold">Rs. {beatData.travel_allowance}</p>
+                  <p className="font-semibold">Rs. {Number(beatData.travel_allowance).toLocaleString()}</p>
                 </div>
               )}
-              {beatData.average_km && (
+              {beatData.average_km !== undefined && beatData.average_km !== null && Number(beatData.average_km) > 0 && (
                 <div>
                   <p className="text-xs text-muted-foreground">Average Distance</p>
-                  <p className="font-semibold">{beatData.average_km} km</p>
+                  <p className="font-semibold">{Number(beatData.average_km)} km</p>
                 </div>
               )}
-              {beatData.average_time_minutes && (
+              {beatData.average_time_minutes !== undefined && beatData.average_time_minutes !== null && Number(beatData.average_time_minutes) > 0 && (
                 <div>
                   <p className="text-xs text-muted-foreground">Avg Time</p>
-                  <p className="font-semibold">{beatData.average_time_minutes} mins</p>
+                  <p className="font-semibold">{Number(beatData.average_time_minutes)} mins</p>
                 </div>
               )}
             </div>
@@ -729,7 +842,7 @@ export const BeatDetail = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" fontSize={12} />
                     <YAxis fontSize={12} />
-                    <Tooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Revenue']} />
+                    <RechartsTooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Revenue']} />
                     <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   </RechartsBarChart>
                 </ResponsiveContainer>
@@ -764,7 +877,7 @@ export const BeatDetail = () => {
                           <Cell key={`cell-${index}`} fill={`hsl(${index * 36}, 70%, 50%)`} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Value']} />
+                      <RechartsTooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Value']} />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -792,7 +905,7 @@ export const BeatDetail = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" fontSize={10} tickFormatter={(v) => `Rs.${(v/1000).toFixed(0)}K`} />
                       <YAxis type="category" dataKey="name" fontSize={10} width={80} />
-                      <Tooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Revenue']} />
+                      <RechartsTooltip formatter={(value: number) => [`Rs. ${value.toLocaleString()}`, 'Revenue']} />
                       <Bar dataKey="revenue" fill="hsl(var(--chart-2))" radius={[0, 4, 4, 0]} />
                     </RechartsBarChart>
                   </ResponsiveContainer>
@@ -820,7 +933,7 @@ export const BeatDetail = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" fontSize={12} />
                     <YAxis fontSize={12} allowDecimals={false} />
-                    <Tooltip />
+                    <RechartsTooltip />
                     <Bar dataKey="count" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} name="New Retailers" />
                   </RechartsBarChart>
                 </ResponsiveContainer>
@@ -1009,12 +1122,20 @@ export const BeatDetail = () => {
                               )}
                             </div>
                           </div>
-                          {retailer.order_value && (
-                            <div className="text-right">
-                              <p className="text-xs text-muted-foreground">Order Value</p>
-                              <p className="font-semibold text-primary">₹{retailer.order_value.toLocaleString()}</p>
-                            </div>
-                          )}
+                          <div className="text-right space-y-1">
+                            {retailer.order_value && (
+                              <div>
+                                <p className="text-xs text-muted-foreground">Last order value</p>
+                                <p className="font-semibold text-primary">₹{retailer.order_value.toLocaleString()}</p>
+                              </div>
+                            )}
+                            {retailer.fyOrderValue !== undefined && retailer.fyOrderValue > 0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground">Order value this FY</p>
+                                <p className="font-semibold text-green-600">₹{retailer.fyOrderValue.toLocaleString()}</p>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         <div className="space-y-1">

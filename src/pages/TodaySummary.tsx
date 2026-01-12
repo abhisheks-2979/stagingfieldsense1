@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Layout } from "@/components/Layout";
 import { useManagedInterval } from "@/utils/intervalManager";
-import { Download, Share, FileText, Clock, MapPin, CalendarIcon, ExternalLink, Users, X } from "lucide-react";
+import { Download, Share, FileText, Clock, MapPin, CalendarIcon, ExternalLink, Users, X, CreditCard, Wallet, Banknote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { FeedbackSummarySection } from "@/components/FeedbackSummarySection";
 import { UserSelector } from "@/components/UserSelector";
 import { useSubordinates } from "@/hooks/useSubordinates";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 type DateFilterType = 'today' | 'week' | 'lastWeek' | 'month' | 'custom' | 'dateRange';
 
@@ -94,6 +96,7 @@ export const TodaySummary = () => {
   const [orders, setOrders] = useState<Array<{ retailer: string; amount: number; kgSold: number; kgFormatted: string; creditAmount: number; cashInHand: number; paymentMethod: string }>>([]);
   const [visitsByStatus, setVisitsByStatus] = useState<Record<string, Array<{ retailer: string; note?: string; totalValue?: number; beatName?: string; address?: string; planDate?: string }>>>({});
   const [productGroupedOrders, setProductGroupedOrders] = useState<Array<{ product: string; kgSold: number; kgFormatted: string; value: number; orders: number }>>([]);
+  const [showAllProducts, setShowAllProducts] = useState(false);
   
   // Joint Sales Data
   const [jointSalesData, setJointSalesData] = useState<{
@@ -136,6 +139,14 @@ export const TodaySummary = () => {
   }>>([]);
 
   const [pointsEarnedToday, setPointsEarnedToday] = useState(0);
+  
+  // Payment method breakdown data for pie chart
+  const [paymentMethodBreakdown, setPaymentMethodBreakdown] = useState<Array<{
+    method: string;
+    amount: number;
+    count: number;
+    color: string;
+  }>>([]);
   
   // First and last retailer visit data for Time at Retailers modal
   const [firstLastRetailerVisit, setFirstLastRetailerVisit] = useState<{
@@ -201,29 +212,17 @@ export const TodaySummary = () => {
     { enabled: filterType === 'today', runWhenHidden: false }
   );
 
-  // Auto-refresh event listeners
+  // SIMPLIFIED: Event listeners for immediate UI updates only (no sync event listeners)
+  // Per event-based sync architecture: syncComplete and visitDataChanged should NOT trigger refreshes
   useEffect(() => {
-    // Listen for sync complete event
-    const handleSyncComplete = () => {
-      console.log('🔄 [SUMMARY] Sync complete, refreshing...');
-      setTimeout(() => {
-        fetchTodaysData(true); // Background refresh
-      }, 500);
-    };
-    
-    const handleVisitDataChanged = () => {
-      console.log('📢 [SUMMARY] visitDataChanged, refreshing...');
-      fetchTodaysData(true); // Background refresh
-    };
-    
     // Listen for immediate order updates (visitStatusChanged includes order value)
+    // This is a SURGICAL update - only update specific counters, no full refresh
     const handleVisitStatusChanged = (event: CustomEvent) => {
       const detail = event.detail;
-      console.log('📢 [SUMMARY] visitStatusChanged, refreshing...', detail);
       
-      // If we have an order, update summary immediately
+      // If we have an order, update summary counters immediately (no full refresh)
       if (detail?.orderValue && filterType === 'today') {
-        // Update total order value immediately
+        console.log('📢 [SUMMARY] visitStatusChanged - surgical update', detail);
         setSummaryData(prev => ({
           ...prev,
           totalOrderValue: (prev.totalOrderValue || 0) + Math.round(Number(detail.orderValue) || 0),
@@ -231,21 +230,14 @@ export const TodaySummary = () => {
           productiveVisits: (prev.productiveVisits || 0) + 1,
           completedVisits: (prev.completedVisits || 0) + 1
         }));
-        
-        // Also refresh in background to get full data
-        setTimeout(() => fetchTodaysData(true), 1000);
-      } else {
-        fetchTodaysData(true);
+        // NO background refresh - this was the surgical update
       }
+      // For non-order status changes, no refresh needed - UI already reflects local state
     };
     
-    window.addEventListener('syncComplete', handleSyncComplete);
-    window.addEventListener('visitDataChanged', handleVisitDataChanged);
     window.addEventListener('visitStatusChanged', handleVisitStatusChanged as EventListener);
     
     return () => {
-      window.removeEventListener('syncComplete', handleSyncComplete);
-      window.removeEventListener('visitDataChanged', handleVisitDataChanged);
       window.removeEventListener('visitStatusChanged', handleVisitStatusChanged as EventListener);
     };
   }, [filterType]);
@@ -1009,8 +1001,7 @@ export const TodaySummary = () => {
           kgFormatted: data.kgSold > 0 ? formatKg(data.kgSold) : 'N/A',
           revenue: data.revenue 
         }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 5);
+        .sort((a, b) => b.revenue - a.revenue);
 
       setProductSales(productSalesData);
 
@@ -1061,7 +1052,78 @@ export const TodaySummary = () => {
 
       setOrders(ordersData);
 
-      // Process product-grouped orders for Total Order Value dialog with KG
+      // Calculate payment method breakdown for pie chart
+      const paymentMethodMap = new Map<string, { amount: number; count: number }>();
+      const paymentMethodColors: Record<string, string> = {
+        'cash': 'hsl(142, 76%, 36%)', // green
+        'credit': 'hsl(0, 84%, 60%)',  // red
+        'upi': 'hsl(280, 67%, 50%)',   // purple
+        'neft': 'hsl(220, 90%, 56%)',  // blue
+        'cheque': 'hsl(38, 92%, 50%)', // orange
+        'check': 'hsl(38, 92%, 50%)',  // orange (alternate spelling)
+        'rtgs': 'hsl(190, 90%, 45%)',  // cyan
+        'n/a': 'hsl(220, 14%, 70%)',   // gray
+      };
+      
+      todayOrders?.forEach(order => {
+        const totalAmount = Number(order.total_amount ?? 0);
+        const paid = Number(order.credit_paid_amount ?? order.amount_paid ?? 0);
+        const isCreditOrder = order.is_credit_order;
+        const paymentMethod = order.payment_method?.toLowerCase() || '';
+        
+        // Determine the primary payment method
+        let primaryMethod = 'n/a';
+        
+        if (isCreditOrder) {
+          // If credit order with partial payment
+          if (paid > 0) {
+            // Add the paid portion to the payment method used
+            const paidMethod = paymentMethod || 'cash';
+            const existingPaid = paymentMethodMap.get(paidMethod) || { amount: 0, count: 0 };
+            paymentMethodMap.set(paidMethod, {
+              amount: existingPaid.amount + paid,
+              count: existingPaid.count
+            });
+            // Add the credit portion
+            const creditAmount = totalAmount - paid;
+            if (creditAmount > 0) {
+              const existingCredit = paymentMethodMap.get('credit') || { amount: 0, count: 0 };
+              paymentMethodMap.set('credit', {
+                amount: existingCredit.amount + creditAmount,
+                count: existingCredit.count + 1
+              });
+            }
+          } else {
+            // Full credit order
+            primaryMethod = 'credit';
+            const existing = paymentMethodMap.get(primaryMethod) || { amount: 0, count: 0 };
+            paymentMethodMap.set(primaryMethod, {
+              amount: existing.amount + totalAmount,
+              count: existing.count + 1
+            });
+          }
+        } else {
+          // Non-credit order - use payment method
+          primaryMethod = paymentMethod || 'cash';
+          const existing = paymentMethodMap.get(primaryMethod) || { amount: 0, count: 0 };
+          paymentMethodMap.set(primaryMethod, {
+            amount: existing.amount + totalAmount,
+            count: existing.count + 1
+          });
+        }
+      });
+
+      const paymentBreakdownData = Array.from(paymentMethodMap.entries())
+        .filter(([_, data]) => data.amount > 0)
+        .map(([method, data]) => ({
+          method: method.charAt(0).toUpperCase() + method.slice(1),
+          amount: Math.round(data.amount),
+          count: data.count,
+          color: paymentMethodColors[method.toLowerCase()] || 'hsl(220, 14%, 50%)'
+        }))
+        .sort((a, b) => b.amount - a.amount);
+
+      setPaymentMethodBreakdown(paymentBreakdownData);
       const productOrderMap = new Map();
       todayOrders?.forEach(order => {
         order.order_items?.forEach((item: any) => {
@@ -1703,8 +1765,8 @@ export const TodaySummary = () => {
 
   return (
     <Layout>
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-4 space-y-4">
+      <div className="min-h-screen">
+        <div className="container mx-auto p-4 space-y-4">
         {/* Header */}
         <Card className="shadow-card bg-gradient-primary text-primary-foreground">
           <CardHeader className="pb-3 space-y-3">
@@ -1729,6 +1791,7 @@ export const TodaySummary = () => {
                 onUserChange={setManagerSelectedUserId}
                 showAllOption={true}
                 allOptionLabel="All Team"
+                variant="onDark"
                 className="w-fit"
               />
             )}
@@ -1736,7 +1799,7 @@ export const TodaySummary = () => {
         </Card>
 
         {/* Date Filter Controls */}
-        <Card>
+        <Card className="shadow-card">
           <CardContent className="p-4">
             <div className="space-y-3">
               {/* Quick Filter Buttons */}
@@ -1878,7 +1941,7 @@ export const TodaySummary = () => {
         </div>
 
         {/* Selected Period Information - Beat on top, times below */}
-        <Card>
+        <Card className="shadow-card">
           <CardContent className="p-3 space-y-2">
             {/* Beat Name - Top */}
             <div className="flex items-center gap-1.5">
@@ -1907,7 +1970,7 @@ export const TodaySummary = () => {
         </Card>
 
         {/* Key Metrics */}
-        <Card>
+        <Card className="shadow-card">
           <CardHeader>
             <CardTitle className="text-lg">Key Metrics</CardTitle>
           </CardHeader>
@@ -1971,7 +2034,7 @@ export const TodaySummary = () => {
         </Card>
 
         {/* Performance Summary */}
-        <Card>
+        <Card className="shadow-card">
           <CardHeader>
             <CardTitle className="text-lg">Performance Summary</CardTitle>
           </CardHeader>
@@ -2048,7 +2111,7 @@ export const TodaySummary = () => {
         </Card>
 
         {/* Top Performing Retailers */}
-        <Card>
+        <Card className="shadow-card">
           <CardHeader>
             <CardTitle className="text-lg">Top Performing Retailers</CardTitle>
           </CardHeader>
@@ -2075,7 +2138,7 @@ export const TodaySummary = () => {
 
         {/* Joint Sales Highlight Section */}
         {jointSalesData && (
-          <Card className="border-purple-200 bg-purple-50/50">
+          <Card className="shadow-card border-purple-200 bg-purple-50/50">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -2124,7 +2187,7 @@ export const TodaySummary = () => {
                   {jointSalesData.feedback.slice(0, 3).map((feedback, index) => (
                     <div 
                       key={index} 
-                      className="p-3 bg-white rounded-lg border border-purple-100 text-sm cursor-pointer hover:border-purple-300 transition-colors"
+                      className="p-3 bg-card rounded-lg border border-purple-100 text-sm cursor-pointer hover:border-purple-300 transition-colors"
                       onClick={() => {
                         setSelectedJointFeedback({
                           retailerId: feedback.retailerId,
@@ -2168,11 +2231,11 @@ export const TodaySummary = () => {
 
 
         {/* Product-wise Sales */}
-        <Card>
+        <Card className="shadow-card">
           <CardHeader>
             <CardTitle className="text-lg">Product-wise Sales</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -2195,7 +2258,7 @@ export const TodaySummary = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  productSales.map((p) => (
+                  (showAllProducts ? productSales : productSales.slice(0, 5)).map((p) => (
                    <TableRow key={p.name}>
                      <TableCell className="font-medium">{p.name}</TableCell>
                      <TableCell className="text-right">{p.kgFormatted}</TableCell>
@@ -2205,15 +2268,154 @@ export const TodaySummary = () => {
                )}
                </TableBody>
             </Table>
+            {productSales.length > 5 && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="w-full text-primary"
+                onClick={() => setShowAllProducts(!showAllProducts)}
+              >
+                {showAllProducts ? `View Less` : `View More (${productSales.length - 5} more)`}
+              </Button>
+            )}
           </CardContent>
         </Card>
 
-        {/* Feedback Summary Section - Moved to last */}
+        {/* Feedback Summary Section */}
         <FeedbackSummarySection 
           dateFrom={dateRange.from} 
           dateTo={dateRange.to}
           userId={isManager && managerSelectedUserId !== 'self' && managerSelectedUserId !== 'all' ? managerSelectedUserId : user?.id}
         />
+
+        {/* Payment Method Breakdown */}
+        <Card className="shadow-card">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-primary" />
+              Payment Method Breakdown
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loading ? (
+              <div className="text-center text-muted-foreground py-8">Loading payment data...</div>
+            ) : paymentMethodBreakdown.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">
+                <Wallet className="h-12 w-12 mx-auto mb-2 text-muted-foreground/50" />
+                <p>No payment data for this period</p>
+              </div>
+            ) : (
+              <>
+                {/* Pie Chart with Legend */}
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* Pie Chart */}
+                  <div className="h-[160px] w-[160px] flex-shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={paymentMethodBreakdown}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={40}
+                          outerRadius={70}
+                          paddingAngle={2}
+                          dataKey="amount"
+                          nameKey="method"
+                        >
+                          {paymentMethodBreakdown.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Amount']}
+                          contentStyle={{ 
+                            backgroundColor: 'hsl(var(--card))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px',
+                            fontSize: '12px'
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex-1 space-y-2">
+                    {paymentMethodBreakdown.map((item, index) => {
+                      const total = paymentMethodBreakdown.reduce((sum, p) => sum + p.amount, 0);
+                      const percent = total > 0 ? ((item.amount / total) * 100).toFixed(0) : 0;
+                      return (
+                        <div 
+                          key={index}
+                          className="flex items-center justify-between p-2 rounded-lg bg-muted/30"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <div className="flex items-center gap-1.5">
+                              {item.method.toLowerCase() === 'cash' && <Banknote className="h-3.5 w-3.5" style={{ color: item.color }} />}
+                              {item.method.toLowerCase() === 'credit' && <CreditCard className="h-3.5 w-3.5" style={{ color: item.color }} />}
+                              {item.method.toLowerCase() === 'upi' && <Wallet className="h-3.5 w-3.5" style={{ color: item.color }} />}
+                              {!['cash', 'credit', 'upi'].includes(item.method.toLowerCase()) && <CreditCard className="h-3.5 w-3.5" style={{ color: item.color }} />}
+                              <span className="text-sm font-medium">{item.method}</span>
+                              <span className="text-xs text-muted-foreground">({percent}%)</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-bold" style={{ color: item.color }}>
+                              ₹{item.amount.toLocaleString('en-IN')}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {item.count} {item.count === 1 ? 'order' : 'orders'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Totals Summary */}
+                <div className="border-t pt-4 mt-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-success/10 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">Cash in Hand</div>
+                      <div className="text-lg font-bold text-success">
+                        ₹{paymentMethodBreakdown
+                          .filter(p => !['credit'].includes(p.method.toLowerCase()))
+                          .reduce((sum, p) => sum + p.amount, 0)
+                          .toLocaleString('en-IN')}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        (Cash + UPI + NEFT + Cheque)
+                      </div>
+                    </div>
+                    <div className="text-center p-3 bg-destructive/10 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">Credit (Pending)</div>
+                      <div className="text-lg font-bold text-destructive">
+                        ₹{paymentMethodBreakdown
+                          .filter(p => p.method.toLowerCase() === 'credit')
+                          .reduce((sum, p) => sum + p.amount, 0)
+                          .toLocaleString('en-IN')}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        To be collected
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-center p-3 bg-primary/10 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">Total Order Value</div>
+                    <div className="text-xl font-bold text-primary">
+                      ₹{paymentMethodBreakdown.reduce((sum, p) => sum + p.amount, 0).toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="sm:max-w-lg">

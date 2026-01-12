@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { 
   Gift, 
   Calendar, 
@@ -24,11 +29,13 @@ import {
   WifiOff,
   X,
   Target,
-  Globe
+  Globe,
+  Info
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { ProductScheme } from "@/hooks/useOfflineSchemes";
-import { isSchemeConditionMet, schemeHasConditions, SchemeItem } from "@/utils/schemeEngine";
+import { isSchemeConditionMet, schemeHasConditions, SchemeItem, calculateSchemeDiscountForComparison } from "@/utils/schemeEngine";
+import { SchemePolicies } from "@/hooks/useSchemePolicies";
 
 interface Product {
   id: string;
@@ -53,6 +60,7 @@ interface OrderEntrySchemesModalProps {
   orderRows: OrderRow[];
   products: Product[];
   appliedSchemeIds: string[];
+  schemePolicies?: SchemePolicies;
   onApplyScheme: (scheme: ProductScheme, product?: Product, quantity?: number) => void;
   onRemoveScheme: (schemeId: string) => void;
 }
@@ -103,12 +111,27 @@ const formatDate = (date: string | null) => {
   });
 };
 
+const formatUnit = (unit: string | undefined) => {
+  if (!unit) return '';
+  const unitMap: Record<string, string> = {
+    'kg': 'KG',
+    'grams': 'g',
+    'pieces': 'pcs',
+    'liters': 'L',
+    'ml': 'ml',
+    'units': 'units'
+  };
+  return unitMap[unit.toLowerCase()] || unit.toUpperCase();
+};
+
 const getConditionText = (scheme: ProductScheme) => {
   if (scheme.condition_quantity && scheme.quantity_condition_type) {
-    return `Buy ${scheme.quantity_condition_type === 'more_than' ? '>' : '≥'} ${scheme.condition_quantity}`;
+    const unit = formatUnit(scheme.condition_unit);
+    return `Buy ${scheme.quantity_condition_type === 'more_than' ? '>' : '≥'} ${scheme.condition_quantity}${unit ? ` ${unit}` : ''}`;
   }
   if (scheme.buy_quantity) {
-    return `Buy ${scheme.buy_quantity}`;
+    const buyUnit = formatUnit(scheme.buy_quantity_unit);
+    return `Buy ${scheme.buy_quantity}${buyUnit ? ` ${buyUnit}` : ''}`;
   }
   if (scheme.min_order_value) {
     return `Min ₹${scheme.min_order_value}`;
@@ -124,7 +147,9 @@ const getBenefitText = (scheme: ProductScheme) => {
     return `₹${scheme.discount_amount} off`;
   }
   if (scheme.free_quantity) {
-    return `Get ${scheme.free_quantity} free`;
+    const freeUnit = formatUnit(scheme.free_quantity_unit);
+    const freeProductName = scheme.free_product_name || 'item(s)';
+    return `Get ${scheme.free_quantity}${freeUnit ? ` ${freeUnit}` : ''} ${freeProductName} free`;
   }
   return 'Special offer';
 };
@@ -154,10 +179,46 @@ export const OrderEntrySchemesModal: React.FC<OrderEntrySchemesModalProps> = ({
   orderRows,
   products,
   appliedSchemeIds,
+  schemePolicies,
   onApplyScheme,
   onRemoveScheme
 }) => {
   const [searchTerm, setSearchTerm] = React.useState("");
+
+  // Check if more schemes can be applied based on policies
+  const canApplyMore = useMemo(() => {
+    if (!schemePolicies) return true;
+    
+    // Check max schemes limit
+    if (appliedSchemeIds.length >= schemePolicies.maxSchemesPerOrder) {
+      return false;
+    }
+    
+    // If stacking is off and we have any scheme applied, can't add more
+    if (!schemePolicies.allowSchemeStacking && appliedSchemeIds.length > 0) {
+      return false;
+    }
+    
+    return true;
+  }, [schemePolicies, appliedSchemeIds]);
+
+  // Function to check if a specific scheme can be applied
+  const canApplyScheme = (scheme: ProductScheme): boolean => {
+    if (!canApplyMore) return false;
+    
+    // Check same-type stacking if stacking is allowed but same-type is not
+    if (schemePolicies && schemePolicies.allowSchemeStacking && !schemePolicies.sameTypeStacking) {
+      const appliedTypes = appliedSchemeIds.map(id => 
+        schemes.find(s => s.id === id)?.scheme_type
+      ).filter(Boolean);
+      
+      if (appliedTypes.includes(scheme.scheme_type)) {
+        return false;
+      }
+    }
+    
+    return true;
+  };
 
   const activeSchemes = useMemo(() => 
     schemes.filter(s => isSchemeActive(s)), [schemes]);
@@ -302,9 +363,81 @@ export const OrderEntrySchemesModal: React.FC<OrderEntrySchemesModalProps> = ({
           </div>
 
           <div className="bg-muted/50 rounded p-2 text-xs space-y-1">
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Condition:</span>
-              <span className="font-medium">{getConditionText(scheme)}</span>
+              <div className="flex items-center gap-1">
+                <span className="font-medium">{getConditionText(scheme)}</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 hover:bg-muted">
+                      <Info className="w-3 h-3 text-muted-foreground" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-3" side="left">
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-sm flex items-center gap-1.5">
+                        {getSchemeTypeIcon(scheme.scheme_type)}
+                        {scheme.name}
+                      </h4>
+                      {scheme.description && (
+                        <p className="text-xs text-muted-foreground">{scheme.description}</p>
+                      )}
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Target Product:</span>
+                          <span className="font-medium">{scheme.product_name || 'All Products'}</span>
+                        </div>
+                        {scheme.scheme_type === 'buy_x_get_y_free' && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Buy Quantity Threshold:</span>
+                              <span className="font-medium">
+                                {scheme.buy_quantity} {formatUnit(scheme.buy_quantity_unit) || 'units'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Free Product:</span>
+                              <span className="font-medium">{scheme.free_product_name || 'Same product'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Free Quantity:</span>
+                              <span className="font-medium text-green-600">
+                                {scheme.free_quantity} {formatUnit(scheme.free_quantity_unit) || 'units'}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {(scheme.scheme_type === 'percentage_discount' || scheme.scheme_type === 'flat_discount') && scheme.condition_quantity && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Min Quantity:</span>
+                            <span className="font-medium">
+                              {scheme.condition_quantity} {formatUnit(scheme.condition_unit) || 'units'}
+                            </span>
+                          </div>
+                        )}
+                        {scheme.discount_percentage && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Discount:</span>
+                            <span className="font-medium text-green-600">{scheme.discount_percentage}% off</span>
+                          </div>
+                        )}
+                        {scheme.discount_amount && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Discount:</span>
+                            <span className="font-medium text-green-600">₹{scheme.discount_amount} off</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between pt-1 border-t">
+                          <span className="text-muted-foreground">Valid:</span>
+                          <span className="text-[10px]">
+                            {formatDate(scheme.start_date)} - {formatDate(scheme.end_date)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Benefit:</span>
@@ -338,19 +471,25 @@ export const OrderEntrySchemesModal: React.FC<OrderEntrySchemesModalProps> = ({
                 Condition not met
               </Badge>
             ) : !isOrderWide && !productInCart ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">Add product first</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs px-2.5"
-                  onClick={() => handleApply(scheme)}
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  Add & Apply
-                </Button>
-              </div>
-            ) : isPurePercentage ? (
+              canApplyScheme(scheme) ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground">Add product first</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2.5"
+                    onClick={() => handleApply(scheme)}
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Add & Apply
+                  </Button>
+                </div>
+              ) : (
+                <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                  {!schemePolicies?.allowSchemeStacking ? 'Stacking off' : 'Max offers reached'}
+                </Badge>
+              )
+            ) : canApplyScheme(scheme) ? (
               <Button
                 size="sm"
                 variant="default"
@@ -361,9 +500,8 @@ export const OrderEntrySchemesModal: React.FC<OrderEntrySchemesModalProps> = ({
                 Apply
               </Button>
             ) : (
-              <Badge variant="default" className="bg-green-600 text-[10px] px-1.5">
-                <Check className="w-2.5 h-2.5 mr-0.5" />
-                Auto-Applied
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                {!schemePolicies?.allowSchemeStacking ? 'Stacking off' : 'Max offers reached'}
               </Badge>
             )}
           </div>

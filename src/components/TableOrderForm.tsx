@@ -16,7 +16,8 @@ import { ApplyOfferSection } from "@/components/ApplyOfferSection";
 import { OrderEntrySchemesModal } from "@/components/OrderEntrySchemesModal";
 import { useOfflineSchemes, ProductScheme } from "@/hooks/useOfflineSchemes";
 import { useAppliedSchemes } from "@/hooks/useAppliedSchemes";
-import { calculateOrderWithSchemes, SchemeItem, isSchemeActive, isSchemeConditionMet, schemeHasConditions } from "@/utils/schemeEngine";
+import { useSchemePolicies } from "@/hooks/useSchemePolicies";
+import { calculateOrderWithSchemes, calculateSchemeDiscountForComparison, SchemeItem, isSchemeActive, isSchemeConditionMet, schemeHasConditions } from "@/utils/schemeEngine";
 interface Product {
   id: string;
   sku: string;
@@ -147,8 +148,11 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
   // Load schemes with offline support
   const { schemes, loading: schemesLoading, isOnline } = useOfflineSchemes();
   
+  // Load scheme policies for enforcement
+  const { policies: schemePolicies, loading: policiesLoading } = useSchemePolicies();
+  
   // Applied schemes persistence
-  const { appliedSchemeIds, applyScheme, removeScheme, clearSchemes } = useAppliedSchemes(visitId, retailerId);
+  const { appliedSchemeIds, applyScheme, removeScheme, clearSchemes, setOnlyScheme } = useAppliedSchemes(visitId, retailerId);
   
   // Track auto-applied schemes to prevent infinite loops
   const autoAppliedSchemesRef = useRef<Set<string>>(new Set());
@@ -438,53 +442,65 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
     }
   }, [orderRows, tableFormStorageKey, hasInitialized]);
 
-  // Auto-apply schemes when conditions are met
+  // Auto-apply schemes when conditions are met (respects policy settings)
   useEffect(() => {
-    if (!hasInitialized || orderRows.length === 0 || schemes.length === 0) return;
+    if (!hasInitialized || orderRows.length === 0 || schemes.length === 0 || policiesLoading) return;
     
-    // Build items for scheme calculation
+    // If auto-apply is disabled, don't auto-apply anything
+    if (!schemePolicies.autoApplyBestScheme) return;
+    
+    // Build items for scheme calculation - use variant ID if available for unique identification
     const items: SchemeItem[] = orderRows
       .filter(row => row.product && row.quantity > 0)
-      .map(row => ({
-        id: row.product!.id,
-        product_id: row.product!.id,
-        variant_id: row.variant?.id,
-        quantity: row.quantity,
-        rate: getPricePerUnit(row.product!, row.variant, row.unit),
-        name: row.variant?.variant_name || row.product!.name
-      }));
+      .map(row => {
+        const itemId = row.variant?.id || row.product!.id;
+        return {
+          id: itemId,
+          product_id: itemId,
+          variant_id: row.variant?.id,
+          quantity: row.quantity,
+          rate: getPricePerUnit(row.product!, row.variant, row.unit),
+          name: row.variant?.variant_name || row.product!.name
+        };
+      });
     
     if (items.length === 0) return;
     
     const subtotal = items.reduce((sum, item) => sum + (item.rate * item.quantity), 0);
     const activeSchemes = schemes.filter(s => isSchemeActive(s));
     
+    // Get qualifying schemes (meet conditions and not suppressed)
+    const qualifyingSchemes = activeSchemes
+      .filter(scheme => {
+        // Skip pure percentage offers with no conditions - these require manual apply
+        if (scheme.scheme_type === 'percentage_discount' && !schemeHasConditions(scheme)) {
+          return false;
+        }
+        // Skip suppressed schemes
+        if (suppressedSchemesRef.current.has(scheme.id)) {
+          return false;
+        }
+        return isSchemeConditionMet(scheme, items, subtotal);
+      })
+      .map(scheme => ({
+        scheme,
+        discount: calculateSchemeDiscountForComparison(scheme, items, subtotal)
+      }))
+      .filter(s => s.discount > 0);
+    
+    // Handle auto-removal of schemes that no longer qualify
     activeSchemes.forEach(scheme => {
-      // Skip pure percentage offers with no conditions - these require manual apply
-      if (scheme.scheme_type === 'percentage_discount' && !schemeHasConditions(scheme)) {
-        return;
-      }
-
       const conditionMet = isSchemeConditionMet(scheme, items, subtotal);
       const isApplied = appliedSchemeIds.includes(scheme.id);
       const wasAutoApplied = autoAppliedSchemesRef.current.has(scheme.id);
-
-      // If the user no longer qualifies, clear suppression so it can auto-apply next time they qualify
+      
+      // If the user no longer qualifies, clear suppression
       if (!conditionMet) {
         suppressedSchemesRef.current.delete(scheme.id);
       }
-
-      // If user manually removed it, don't auto-apply again while the condition remains met
-      if (suppressedSchemesRef.current.has(scheme.id)) {
-        return;
-      }
-
-      if (conditionMet && !isApplied) {
-        // Auto-apply when condition is met
-        autoAppliedSchemesRef.current.add(scheme.id);
-        applyScheme(scheme.id);
-      } else if (!conditionMet && isApplied && wasAutoApplied) {
-        // Auto-remove only if it was auto-applied (not manually)
+      
+      // Auto-remove only if it was auto-applied and condition no longer met
+      if (!conditionMet && isApplied && wasAutoApplied) {
         autoAppliedSchemesRef.current.delete(scheme.id);
         removeScheme(scheme.id);
         toast({
@@ -494,7 +510,70 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
         });
       }
     });
-  }, [orderRows, schemes, hasInitialized, appliedSchemeIds, applyScheme, removeScheme]);
+    
+    // If stacking not allowed OR max is 1, only apply the BEST scheme
+    if (!schemePolicies.allowSchemeStacking || schemePolicies.maxSchemesPerOrder === 1) {
+      if (qualifyingSchemes.length === 0) return;
+      
+      // Sort by discount and get the best one based on priority resolution
+      let bestScheme;
+      if (schemePolicies.priorityResolution === 'highest_discount') {
+        bestScheme = qualifyingSchemes.sort((a, b) => b.discount - a.discount)[0];
+      } else if (schemePolicies.priorityResolution === 'priority') {
+        // Use created_at or name as fallback since priority field may not exist
+        bestScheme = qualifyingSchemes.sort((a, b) => 
+          ((a.scheme as any).priority || 999) - ((b.scheme as any).priority || 999)
+        )[0];
+      } else {
+        bestScheme = qualifyingSchemes[0];
+      }
+      
+      const bestSchemeId = bestScheme.scheme.id;
+      const currentAutoApplied = Array.from(autoAppliedSchemesRef.current);
+      
+      // If the best scheme is already applied, we're good
+      if (appliedSchemeIds.includes(bestSchemeId) && appliedSchemeIds.length === 1) {
+        return;
+      }
+      
+      // Remove any other auto-applied schemes and set only the best one
+      currentAutoApplied.forEach(id => {
+        if (id !== bestSchemeId) {
+          autoAppliedSchemesRef.current.delete(id);
+        }
+      });
+      
+      // Set only the best scheme
+      if (!appliedSchemeIds.includes(bestSchemeId) || appliedSchemeIds.length > 1) {
+        autoAppliedSchemesRef.current.add(bestSchemeId);
+        setOnlyScheme(bestSchemeId);
+        console.log('[TableOrderForm] Policy: Applied best scheme only:', bestScheme.scheme.name, 'Discount:', bestScheme.discount);
+      }
+      
+      return;
+    }
+    
+    // Normal multi-scheme behavior with maxSchemesPerOrder limit
+    qualifyingSchemes.forEach(({ scheme }) => {
+      const isApplied = appliedSchemeIds.includes(scheme.id);
+      
+      if (!isApplied && appliedSchemeIds.length < schemePolicies.maxSchemesPerOrder) {
+        // Check same-type stacking rule
+        if (!schemePolicies.sameTypeStacking) {
+          const appliedTypes = appliedSchemeIds.map(id => 
+            schemes.find(s => s.id === id)?.scheme_type
+          ).filter(Boolean);
+          
+          if (appliedTypes.includes(scheme.scheme_type)) {
+            return; // Skip - same type already applied
+          }
+        }
+        
+        autoAppliedSchemesRef.current.add(scheme.id);
+        applyScheme(scheme.id, scheme, schemePolicies, schemes);
+      }
+    });
+  }, [orderRows, schemes, hasInitialized, appliedSchemeIds, schemePolicies, policiesLoading, applyScheme, removeScheme, setOnlyScheme]);
 
   const findProductByCode = (code: string): { product: Product; variant?: any } | undefined => {
     // First check base products
@@ -574,6 +653,19 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
 
   // Unit conversion helpers - unified across UI and totals
   const normalizeUnit = (u?: string) => (u || "").toLowerCase().replace(/\./g, "").trim();
+
+  const formatQtyUnit = (u?: string) => {
+    const unit = normalizeUnit(u);
+    if (!unit) return "";
+    if (["g", "gm", "gram", "grams"].includes(unit)) return "grams";
+    if (["kg", "kilogram", "kilograms"].includes(unit)) return "kg";
+    if (["ml", "milliliter", "milliliters"].includes(unit)) return "ml";
+    if (["l", "ltr", "liter", "liters", "litre", "litres"].includes(unit)) return "liters";
+    if (["pc", "pcs", "piece", "pieces"].includes(unit)) return "pcs";
+    if (["unit", "units"].includes(unit)) return "units";
+    return u || "";
+  };
+
   const getPricePerUnit = (prod: Product, variant?: any, unit?: string) => {
     const baseRate = Number(variant ? variant.price : prod.rate) || 0;
     const baseUnit = normalizeUnit(prod.base_unit || prod.unit);
@@ -796,14 +888,18 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
   const orderCalculation = useMemo(() => {
     const schemeItems: SchemeItem[] = orderRows
       .filter(row => row.product && row.quantity > 0)
-      .map(row => ({
-        id: row.product!.id,
-        product_id: row.product!.id,
-        variant_id: row.variant?.id,
-        quantity: row.quantity,
-        rate: getPricePerUnit(row.product!, row.variant, row.unit),
-        name: row.variant?.variant_name || row.product!.name
-      }));
+      .map(row => {
+        // Use variant ID if available for unique identification - each variant is a separate product
+        const itemId = row.variant?.id || row.product!.id;
+        return {
+          id: itemId,
+          product_id: itemId,
+          variant_id: row.variant?.id,
+          quantity: row.quantity,
+          rate: getPricePerUnit(row.product!, row.variant, row.unit),
+          name: row.variant?.variant_name || row.product!.name
+        };
+      });
     
     return calculateOrderWithSchemes(schemeItems, schemes, appliedSchemeIds);
   }, [orderRows, schemes, appliedSchemeIds]);
@@ -889,9 +985,19 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
               
               {/* Table Rows - Responsive */}
               <div className="divide-y divide-border">
-                {orderRows.map((row, index) => (
+                {orderRows.map((row, index) => {
+                  // Get the item ID for matching free items (variant ID or product ID)
+                  const rowItemId = row.variant?.id || row.product?.id;
+                  
+                  // Get free items that belong to this product row
+                  const freeItemsForRow = rowItemId ? orderCalculation.appliedSchemes
+                    .filter(s => s.free_items && s.free_items.length > 0)
+                    .flatMap(s => s.free_items!)
+                    .filter(freeItem => (freeItem as any).triggering_item_id === rowItemId) : [];
+                  
+                  return (
+                  <React.Fragment key={row.id}>
                   <div 
-                  key={row.id} 
                   className={cn(
                     "grid grid-cols-[1.5fr_0.8fr_0.6fr_0.6fr_auto] md:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-2 md:px-4 py-2 md:py-3 items-start",
                     index % 2 === 0 ? "bg-background" : "bg-muted/20"
@@ -978,9 +1084,43 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
                         </PopoverContent>
                       </Popover>
                       {row.product && (
-                        <span className="text-[9px] text-muted-foreground mt-0.5">
-                          ₹{getPricePerUnit(row.product, row.variant, row.unit).toFixed(2)} per {row.unit}
-                        </span>
+                        <>
+                          <span className="text-[9px] text-muted-foreground mt-0.5">
+                            ₹{getPricePerUnit(row.product, row.variant, row.unit).toFixed(2)} per {row.unit}
+                          </span>
+                          {/* Show applied scheme details */}
+                          {(() => {
+                            // Use variant ID if available for correct lookup
+                            const itemId = row.variant?.id || row.product.id;
+                            const itemSchemes = orderCalculation.itemSchemeDetails?.[itemId] || [];
+                            
+                            if (itemSchemes.length === 0 || row.quantity === 0) return null;
+                            
+                            return (
+                              <div className="mt-0.5 space-y-0.5">
+                                {itemSchemes.map((scheme, idx) => (
+                                  <div key={idx} className="flex items-center gap-1 text-[9px] md:text-[10px] text-green-600">
+                                    <Gift size={10} className="flex-shrink-0" />
+                                    <span className="truncate">
+                                      {scheme.schemeType === 'buy_x_get_y_free' || scheme.schemeType === 'buy_get_free' ? (() => {
+                                        const freeUnit = schemes.find(s => s.id === scheme.schemeId)?.free_quantity_unit;
+                                        const unitLabel = formatQtyUnit(freeUnit);
+                                        const unitPart = unitLabel ? `${unitLabel} ` : '';
+                                        return <>🎁 {scheme.schemeName}: Get {scheme.freeItemQty} {unitPart}{scheme.freeItemName} FREE</>;
+                                      })() : (
+                                        <>
+                                          {scheme.schemeName}
+                                          {scheme.discountPercentage && ` (${scheme.discountPercentage}% off)`}
+                                          {scheme.discountAmount > 0 && ` - ₹${scheme.discountAmount.toFixed(2)} saved`}
+                                        </>
+                                      )}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </>
                       )}
                     </div>
                     
@@ -1049,7 +1189,27 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
                       </Button>
                     </div>
                   </div>
-              ))}
+                  
+                  {/* Free Items for this product - render directly under the product row */}
+                  {freeItemsForRow.map((freeItem, freeIdx) => (
+                    <div 
+                      key={`free-${row.id}-${freeIdx}`} 
+                      className="grid grid-cols-[1.5fr_0.8fr_0.6fr_0.6fr_auto] md:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-2 md:px-4 py-1.5 md:py-2 items-center bg-green-50 border-l-4 border-l-green-500"
+                    >
+                      <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+                        <Gift size={14} className="text-green-600 shrink-0" />
+                        <span className="text-xs font-medium text-green-700 truncate">{freeItem.product_name}</span>
+                        <Badge variant="secondary" className="bg-green-100 text-green-700 text-[10px] px-1 py-0 shrink-0">FREE</Badge>
+                      </div>
+                      <div className="text-xs text-green-600">{formatQtyUnit(freeItem.unit) || 'pcs'}</div>
+                      <div className="text-center text-xs font-medium text-green-700">{freeItem.quantity}</div>
+                      <div className="text-center text-xs text-muted-foreground">-</div>
+                      <div className="text-right text-xs font-bold text-green-600 pr-2">₹0.00</div>
+                    </div>
+                  ))}
+                  </React.Fragment>
+                );
+                })}
               </div>
             </div>
         </CardContent>
@@ -1143,6 +1303,7 @@ export const TableOrderForm = forwardRef<TableOrderFormHandle, TableOrderFormPro
         orderRows={orderRows}
         products={products}
         appliedSchemeIds={appliedSchemeIds}
+        schemePolicies={schemePolicies}
         onApplyScheme={handleApplyScheme}
         onRemoveScheme={(schemeId) => {
           removeScheme(schemeId);

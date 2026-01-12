@@ -4,6 +4,7 @@ import { offlineStorage, STORES, MIN_SYNC_INTERVAL_MS } from '@/lib/offlineStora
 import { loadMyVisitsSnapshot, saveMyVisitsSnapshot } from '@/lib/myVisitsSnapshot';
 import { getLocalTodayDate } from '@/utils/dateUtils';
 import { isSlowConnection, getConnectionQuality, getManualSlowMode } from '@/utils/internetSpeedCheck';
+import { getLastChangeTimestamp, clearChangeMarker } from '@/lib/visitChangeMarker';
 
 interface UseVisitsDataOptimizedProps {
   userId: string | undefined;
@@ -17,11 +18,12 @@ interface PointsData {
 }
 
 interface ProgressStats {
-  planned: number;
+  planned: number; // Pending visits (not yet visited)
   productive: number;
   unproductive: number;
   totalOrders: number;
   totalOrderValue: number;
+  totalPlanned: number; // Total planned visits (doesn't change when status changes)
 }
 
 // SMART SYNC: Track individual item changes by ID + timestamp
@@ -133,12 +135,17 @@ const calculateStats = (visits: any[], orders: any[], retailers: any[], selected
     if (!countedRetailers.has(r.id)) planned++;
   });
 
+  // Total planned = all retailers in the beat (doesn't change when visit status changes)
+  // This is the total count of planned visits for the day
+  const totalPlanned = retailers.length;
+
   return {
     planned,
     productive,
     unproductive,
     totalOrders: dateFilteredOrders.length,
-    totalOrderValue: dateFilteredOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
+    totalOrderValue: dateFilteredOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0),
+    totalPlanned
   };
 };
 
@@ -202,6 +209,22 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
   
   // SMART SYNC: Lock to prevent multiple syncs
   const smartSyncLockRef = useRef(false);
+  
+  // MEMORY OPTIMIZATION: Limit cached dates to prevent unbounded growth
+  const MAX_CACHED_DATES = 7;
+  
+  const pruneDateCache = useCallback(() => {
+    if (cacheRef.current.size <= MAX_CACHED_DATES) return;
+    
+    const entries = Array.from(cacheRef.current.entries())
+      .sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
+    
+    const toRemove = entries.slice(0, entries.length - MAX_CACHED_DATES);
+    for (const [key] of toRemove) {
+      cacheRef.current.delete(key);
+    }
+    console.log(`[useVisitsData] Pruned ${toRemove.length} old date caches, remaining: ${cacheRef.current.size}`);
+  }, []);
   
   // STALE CLOSURE FIX: Keep refs in sync with latest values for event handlers
   const userIdRef = useRef(effectiveUserId);
@@ -546,13 +569,16 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
       ]).catch(e => console.error('[SmartSync] Storage error:', e));
 
       // Save snapshot (background) - pass date to calculateStats for proper filtering
+      // Include points for faster loading on next visit
       saveMyVisitsSnapshot(uid, date, {
         beatPlans: currentCache.beatPlans,
         visits: currentCache.visits,
         retailers: currentCache.retailers,
         orders: currentCache.orders,
         progressStats: calculateStats(currentCache.visits, currentCache.orders, currentCache.retailers, date),
-        currentBeatName: currentCache.beatPlans.map((p: any) => p.beat_name).join(', ')
+        currentBeatName: currentCache.beatPlans.map((p: any) => p.beat_name).join(', '),
+        pointsTotal: pointsFetched.total,
+        pointsByRetailer: Array.from(pointsFetched.byRetailer.entries())
       }).catch(e => console.error('[SmartSync] Snapshot error:', e));
 
       // Update sync timestamp
@@ -593,6 +619,18 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
     // FIX #3: Cache staleness check - for today, if cache is old, force full sync
     const MAX_CACHE_AGE_MS = 30 * 60 * 1000; // 30 minutes
     const isTodayDate = isToday(selectedDate);
+
+    // CRITICAL FIX: Check for changes made on other pages while this component was unmounted
+    // If changes were detected, invalidate the in-memory cache to force fresh snapshot load
+    const changeMarker = await getLastChangeTimestamp();
+    if (changeMarker && changeMarker.date === selectedDate) {
+      const cached = cacheRef.current.get(selectedDate);
+      if (cached && changeMarker.timestamp > (cached.timestamp || 0)) {
+        console.log('[LoadData] 🔄 Change detected while unmounted, invalidating cache for', selectedDate);
+        cacheRef.current.delete(selectedDate);
+        await clearChangeMarker();
+      }
+    }
 
     // 1. Try in-memory cache FIRST (instant)
     const cached = cacheRef.current.get(selectedDate);
@@ -699,6 +737,17 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
         setVisits(snapshot.visits || []);
         setRetailers(mergedRetailers);
         setOrders(snapshot.orders || []);
+        
+        // FIX: Load points from snapshot for instant display
+        if (snapshot.pointsTotal !== undefined || snapshot.pointsByRetailer) {
+          const pointsFromSnapshot: PointsData = {
+            total: snapshot.pointsTotal || 0,
+            byRetailer: new Map(snapshot.pointsByRetailer || [])
+          };
+          setPointsData(pointsFromSnapshot);
+          console.log('[LoadData] Loaded points from snapshot:', pointsFromSnapshot.total);
+        }
+        
         setIsLoading(false);
         setHasLoadedOnce(true);
         
@@ -706,6 +755,7 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
         cacheRef.current.set(selectedDate, { 
           ...snapshot, 
           retailers: mergedRetailers,
+          points: snapshot.pointsByRetailer ? { total: snapshot.pointsTotal || 0, byRetailer: snapshot.pointsByRetailer } : undefined,
           timestamp: Date.now() 
         });
         
@@ -868,8 +918,10 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
         timestamp: Date.now()
       };
       cacheRef.current.set(date, cacheData);
+      
+      // MEMORY: Prune old date caches to prevent unbounded growth
+      pruneDateCache();
 
-      // Save to offline storage
       await Promise.all([
         offlineStorage.mergeData(STORES.BEAT_PLANS, beatPlansData),
         offlineStorage.mergeData(STORES.VISITS, visitsData),
@@ -877,14 +929,16 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
         offlineStorage.mergeData(STORES.ORDERS, ordersData)
       ]);
 
-      // Save snapshot
+      // Save snapshot - include points for faster loading
       await saveMyVisitsSnapshot(uid, date, {
         beatPlans: beatPlansData,
         visits: visitsData,
         retailers: retailersData,
         orders: ordersData,
         progressStats: calculateStats(visitsData, ordersData, retailersData, date),
-        currentBeatName: beatPlansData.map(p => p.beat_name).join(', ')
+        currentBeatName: beatPlansData.map(p => p.beat_name).join(', '),
+        pointsTotal: pointsFetched.total,
+        pointsByRetailer: Array.from(pointsFetched.byRetailer.entries())
       });
 
       // Update sync timestamp
@@ -1028,29 +1082,47 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
       });
 
       // FIX: Handle order data - either from order object or create from orderValue
-      const orderToProcess = order || (orderValue && retailerId && status === 'productive' ? {
-        id: `order_${Date.now()}_${retailerId}`,
+      // Ensure all required fields are present for proper state updates
+      const orderToProcess = order && order.id ? {
+        ...order,
+        retailer_id: order.retailer_id || retailerId,
+        user_id: order.user_id || currentUserId,
+        total_amount: Number(order.total_amount) || 0,
+        order_date: order.order_date || currentDate,
+        status: order.status || 'confirmed',
+        visit_id: order.visit_id || visitId,
+        created_at: order.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } : (orderValue && retailerId && status === 'productive' ? {
+        id: `order_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         retailer_id: retailerId,
         user_id: currentUserId,
-        total_amount: orderValue,
+        total_amount: Number(orderValue) || 0,
         order_date: currentDate,
         status: 'confirmed',
         visit_id: visitId,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       } : null);
       
-      if (orderToProcess) {
+      if (orderToProcess && orderToProcess.total_amount > 0) {
         setOrders(prev => {
-          const existing = prev.find(o => o.id === orderToProcess.id);
+          // Check for existing order by ID first
+          const existingById = prev.find(o => o.id === orderToProcess.id);
           let updated;
-          if (existing) {
-            updated = prev.map(o => o.id === orderToProcess.id ? { ...orderToProcess, updated_at: new Date().toISOString() } : o);
+          
+          if (existingById) {
+            // Update existing order
+            updated = prev.map(o => o.id === orderToProcess.id ? orderToProcess : o);
+            console.log('[LocalEvent] Updated existing order by ID:', orderToProcess.id);
           } else {
             // Check if there's already an order for this retailer today (avoid duplicates)
             const existingRetailerOrder = prev.find(o => 
               o.retailer_id === orderToProcess.retailer_id && 
-              o.order_date === currentDate
+              o.order_date === currentDate &&
+              Math.abs(Number(o.total_amount) - Number(orderToProcess.total_amount)) < 0.01 // Same amount = likely duplicate
             );
+            
             if (existingRetailerOrder) {
               // Update existing order value instead of adding duplicate
               updated = prev.map(o => 
@@ -1060,7 +1132,9 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
               );
               console.log('[LocalEvent] Updated existing retailer order:', existingRetailerOrder.id);
             } else {
-              updated = [...prev, { ...orderToProcess, updated_at: new Date().toISOString() }];
+              // Add new order
+              updated = [...prev, orderToProcess];
+              console.log('[LocalEvent] Added new order:', orderToProcess.id);
             }
           }
           
@@ -1074,7 +1148,7 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
           const updatedCache = { ...cached, orders: updated, timestamp: Date.now() };
           cacheRef.current.set(currentDate, updatedCache);
           
-          // Persist
+          // Persist order to offline storage immediately
           offlineStorage.save(STORES.ORDERS, orderToProcess).catch(() => {});
           
           // FIX #4: Save snapshot for persistence
@@ -1089,7 +1163,7 @@ export const useVisitsDataOptimized = ({ userId, selectedDate, viewUserId }: Use
             }).catch(() => {});
           }
           
-          console.log('[LocalEvent] Order updated/added:', orderToProcess.id, 'Total orders:', updated.length, 'Value:', orderToProcess.total_amount);
+          console.log('[LocalEvent] Order state updated. Total orders:', updated.length, 'Value:', orderToProcess.total_amount);
           return updated;
         });
       }

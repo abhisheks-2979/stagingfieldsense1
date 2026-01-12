@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,6 +48,7 @@ interface Territory {
 }
 
 const TerritoriesManagement = () => {
+  const navigate = useNavigate();
   const [territories, setTerritories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -508,8 +510,7 @@ const TerritoriesManagement = () => {
   };
 
   const openTerritoryDetails = (territory: any) => {
-    setSelectedTerritory(territory);
-    setDetailsModalOpen(true);
+    navigate(`/territory/${territory.id}`);
   };
 
   if (loading) return <div className="flex items-center justify-center p-8">Loading...</div>;

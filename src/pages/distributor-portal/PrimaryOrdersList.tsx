@@ -84,33 +84,25 @@ const PrimaryOrdersList = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-card border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/distributor-portal/dashboard')}>
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="font-semibold text-foreground">Primary Orders</h1>
-              <p className="text-xs text-muted-foreground">{orders.length} orders</p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Primary Orders</h1>
+          <p className="text-muted-foreground">{orders.length} orders total</p>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        {/* Actions Bar */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button onClick={() => navigate('/distributor-portal/orders/new')} className="shrink-0">
+      {/* Actions Bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+          <Button onClick={() => navigate('/distributor-portal/create-primary-order')} className="shrink-0">
             <Plus className="w-4 h-4 mr-2" />
             New Order
           </Button>
@@ -153,7 +145,7 @@ const PrimaryOrdersList = () => {
                   ? 'Try adjusting your filters' 
                   : 'Create your first primary order'}
               </p>
-              <Button onClick={() => navigate('/distributor-portal/orders/new')}>
+              <Button onClick={() => navigate('/distributor-portal/create-primary-order')}>
                 <Plus className="w-4 h-4 mr-2" />
                 Create Order
               </Button>
@@ -165,7 +157,7 @@ const PrimaryOrdersList = () => {
               <Card 
                 key={order.id}
                 className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/distributor-portal/orders/${order.id}`)}
+                onClick={() => navigate(`/distributor-portal/primary-order/${order.id}`)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-4">
@@ -203,7 +195,7 @@ const PrimaryOrdersList = () => {
                           className="bg-green-600 hover:bg-green-700 text-xs"
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/distributor-portal/grn/${order.id}`);
+                            navigate(`/distributor-portal/goods-receipt/${order.id}`);
                           }}
                         >
                           <ClipboardCheck className="w-3 h-3 mr-1" />
@@ -217,7 +209,6 @@ const PrimaryOrdersList = () => {
             ))}
           </div>
         )}
-      </main>
     </div>
   );
 };

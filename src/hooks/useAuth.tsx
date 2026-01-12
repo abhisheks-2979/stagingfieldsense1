@@ -6,6 +6,7 @@ import { setCachedUser, clearCachedAuth } from '@/utils/cachedAuthIntegrity';
 import { devLog, devError } from '@/utils/devLog';
 import { Preferences } from '@capacitor/preferences';
 import { offlineStorage } from '@/lib/offlineStorage';
+import { clearRetailerIndex } from '@/lib/retailerIndex';
 
 interface AuthContextType {
   user: User | null;
@@ -311,12 +312,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       }, 1000); // Small delay to let the success toast show first
 
-      // Redirect based on role
-      if (userRole === 'admin') {
-        window.location.href = '/admin';
-      } else {
-        window.location.href = '/dashboard';
-      }
+      // Redirect to dashboard for all users
+      window.location.href = '/dashboard';
     }
   };
 
@@ -353,7 +350,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Clear offline storage completely
     try {
       await offlineStorage.clearAll();
-      devLog('Cleared offline storage on sign out');
+      offlineStorage.clearMemoryCache();
+      clearRetailerIndex();
+      devLog('Cleared offline storage and memory caches on sign out');
     } catch (offlineError) {
       devError('Error clearing offline storage:', offlineError);
     }

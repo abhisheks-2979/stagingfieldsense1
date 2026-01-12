@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { OwnerSelector } from "@/components/distributor/OwnerSelector";
 
 interface Distributor {
   id: string;
@@ -58,6 +59,8 @@ export default function EditDistributor() {
     threats: "",
     about_business: "",
     drop_reason: "",
+    owner_id: "",
+    owner_name: "",
   });
 
   useEffect(() => {
@@ -106,6 +109,8 @@ export default function EditDistributor() {
         threats: data.threats || "",
         about_business: data.about_business || "",
         drop_reason: data.drop_reason || "",
+        owner_id: (data as any).owner_id || "",
+        owner_name: (data as any).owner_name || "",
       });
     } catch (error: any) {
       toast.error("Failed to load distributor: " + error.message);
@@ -167,6 +172,8 @@ export default function EditDistributor() {
         threats: formData.threats.trim() || null,
         about_business: formData.about_business.trim() || null,
         drop_reason: formData.distributor_status === 'drop' ? formData.drop_reason.trim() : null,
+        owner_id: formData.owner_id || null,
+        owner_name: formData.owner_name || null,
       };
 
       const { error } = await supabase
@@ -285,6 +292,35 @@ export default function EditDistributor() {
                   placeholder="GST registration number"
                 />
               </div>
+
+              {/* Owner Selector */}
+              <OwnerSelector
+                value={formData.owner_id || null}
+                valueName={formData.owner_name || null}
+                onChange={(id, name) => {
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    owner_id: id || "", 
+                    owner_name: name || "" 
+                  }));
+                }}
+              />
+            </CardContent>
+          </Card>
+
+          {/* About Business - Moved up */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">About Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                id="about_business"
+                value={formData.about_business}
+                onChange={(e) => handleChange("about_business", e.target.value)}
+                placeholder="Additional notes about the business"
+                rows={3}
+              />
             </CardContent>
           </Card>
 
@@ -569,21 +605,7 @@ export default function EditDistributor() {
             </CardContent>
           </Card>
 
-          {/* About Business */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">About Business</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                id="about_business"
-                value={formData.about_business}
-                onChange={(e) => handleChange("about_business", e.target.value)}
-                placeholder="Additional notes about the business"
-                rows={3}
-              />
-            </CardContent>
-          </Card>
+          {/* About Business section already shown after Basic Information */}
 
           {/* Submit Button */}
           <Button type="submit" className="w-full gap-2" disabled={loading}>

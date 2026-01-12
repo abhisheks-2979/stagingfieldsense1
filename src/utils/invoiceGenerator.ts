@@ -3,6 +3,48 @@ import autoTable from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
 import { offlineStorage, STORES } from "@/lib/offlineStorage";
 
+// Helper function to check if text contains non-English characters (Indian languages)
+const containsNonEnglishChars = (text: string): boolean => {
+  if (!text) return false;
+  // Check for common Indian language Unicode ranges
+  // Devanagari: \u0900-\u097F, Kannada: \u0C80-\u0CFF, Tamil: \u0B80-\u0BFF
+  // Telugu: \u0C00-\u0C7F, Malayalam: \u0D00-\u0D7F, Bengali: \u0980-\u09FF
+  // Gujarati: \u0A80-\u0AFF, Punjabi: \u0A00-\u0A7F, Odia: \u0B00-\u0B7F
+  const indianLangPattern = /[\u0900-\u097F\u0C80-\u0CFF\u0B80-\u0BFF\u0C00-\u0C7F\u0D00-\u0D7F\u0980-\u09FF\u0A80-\u0AFF\u0A00-\u0A7F\u0B00-\u0B7F]/;
+  return indianLangPattern.test(text);
+};
+
+// Translate address from regional language to English using AI
+const translateAddressToEnglish = async (address: string): Promise<string> => {
+  if (!address || !containsNonEnglishChars(address)) {
+    return address; // Already in English or empty
+  }
+  
+  try {
+    console.log('🌐 Translating address from regional language to English:', address.substring(0, 50) + '...');
+    
+    const { data, error } = await supabase.functions.invoke('translate-address', {
+      body: { addresses: [address] }
+    });
+    
+    if (error) {
+      console.error('Translation error:', error);
+      return address; // Return original if translation fails
+    }
+    
+    const translatedAddress = data?.translatedAddresses?.[0];
+    if (translatedAddress) {
+      console.log('✅ Address translated successfully');
+      return translatedAddress;
+    }
+    
+    return address;
+  } catch (err) {
+    console.error('Failed to translate address:', err);
+    return address; // Return original on error
+  }
+};
+
 interface InvoiceData {
   orderId: string;
   company: any;
@@ -14,6 +56,8 @@ interface InvoiceData {
   beatName?: string;
   salesmanName?: string;
   schemeDetails?: string;
+  orderDiscount?: number; // Order-level discount from orders.discount_amount
+  orderTotal?: number; // Final total from orders.total_amount (includes GST, discounts)
 }
 
 // Helper function to format amount with 2 decimal places (exact)
@@ -70,66 +114,75 @@ const numberToWords = (num: number): string => {
 };
 
 /**
- * Normalize item for display - convert grams to KG when appropriate
- * This solves the Rs.0 display issue for per-gram rates
+ * Normalize item for display - ALWAYS convert grams to KG for display
+ * CRITICAL: Uses stored order_items.total and discount_amount to compute final line total
+ * This ensures invoice matches exactly what was shown in cart at order time
  */
 const normalizeItemForDisplay = (item: any) => {
   const unit = (item.unit || '').toLowerCase();
   const qty = Number(item.quantity) || 0;
-  const rate = Number(item.rate || item.price) || 0;
-  const originalRate = Number(item.original_rate) || rate;
+  // Use stored total from order_items (this is qty × rate before item-level discount)
+  const storedTotal = Number(item.total) || 0;
+  // Item-level discount (may be 0 if discount was applied at order level)
   const discountAmt = Number(item.discount_amount) || 0;
+  // Compute actual line total after any item-level discount
+  const finalLineTotal = Math.max(0, storedTotal - discountAmt);
   
-  // If stored in grams with a very small rate (per-gram), convert to KG for display
+  const originalRate = Number(item.original_rate) || Number(item.rate || item.price) || 0;
+  
   const isGramsUnit = unit === 'grams' || unit === 'gram' || unit === 'g';
-  const isSmallRate = rate > 0 && rate < 1; // Per-gram rate is typically < 1
   
-  if (isGramsUnit && qty >= 1000 && isSmallRate) {
-    // Convert to KG for cleaner invoice display
+  // ALWAYS convert grams to KG for invoice display
+  if (isGramsUnit) {
+    // Convert quantity from grams to KG
+    const displayQty = qty / 1000;
+    
+    // Calculate per-KG original rate for display
+    const isPerGramOrigRate = originalRate > 0 && originalRate < 1;
+    const displayOriginalRate = isPerGramOrigRate ? originalRate * 1000 : originalRate;
+    
+    // Calculate effective rate from final line total
+    const displayRate = displayQty > 0 ? finalLineTotal / displayQty : displayOriginalRate;
+    
     return {
       displayUnit: 'KG',
-      displayQty: qty / 1000,
-      displayRate: rate * 1000, // Rate per KG
-      displayOriginalRate: originalRate * 1000,
-      displayDiscountAmount: discountAmt, // Total discount stays same
-    };
-  }
-  
-  // If stored in grams but rate seems like per-KG (>=1), just show as KG
-  if (isGramsUnit && qty >= 1000 && rate >= 1) {
-    return {
-      displayUnit: 'KG',
-      displayQty: qty / 1000,
-      displayRate: rate, // Already per-unit rate
-      displayOriginalRate: originalRate,
+      displayQty: displayQty,
+      displayRate: displayRate,
+      displayOriginalRate: displayOriginalRate,
       displayDiscountAmount: discountAmt,
+      storedTotal: finalLineTotal, // Use discounted line total
     };
   }
   
-  // For small gram quantities or already using display_unit/display_quantity
+  // For items with explicit display_unit/display_quantity
   if (item.display_unit && item.display_quantity) {
-    const displayRate = item.display_unit.toLowerCase() === 'kg' && isSmallRate 
-      ? rate * 1000 
-      : rate;
-    const displayOrigRate = item.display_unit.toLowerCase() === 'kg' && isSmallRate 
-      ? originalRate * 1000 
-      : originalRate;
+    const displayQty = Number(item.display_quantity) || qty;
+    const isDisplayKg = item.display_unit.toLowerCase() === 'kg';
+    const isPerGramOrigRate = originalRate > 0 && originalRate < 1;
+    const displayOrigRate = isDisplayKg && isPerGramOrigRate ? originalRate * 1000 : originalRate;
+    
+    // Calculate effective rate from final line total
+    const displayRate = displayQty > 0 ? finalLineTotal / displayQty : displayOrigRate;
+    
     return {
       displayUnit: item.display_unit,
-      displayQty: item.display_quantity,
+      displayQty: displayQty,
       displayRate: displayRate,
       displayOriginalRate: displayOrigRate,
       displayDiscountAmount: discountAmt,
+      storedTotal: finalLineTotal,
     };
   }
   
-  // Default: use as-is
+  // Default: use as-is for non-gram units
+  const displayRate = qty > 0 ? finalLineTotal / qty : originalRate;
   return {
     displayUnit: item.unit || 'Piece',
     displayQty: qty,
-    displayRate: rate,
+    displayRate: displayRate,
     displayOriginalRate: originalRate,
     displayDiscountAmount: discountAmt,
+    storedTotal: finalLineTotal,
   };
 };
 
@@ -138,7 +191,11 @@ const normalizeItemForDisplay = (item: any) => {
  * This is the ONLY template used throughout the application
  */
 export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob> {
-  const { orderId, company, retailer, cartItems, displayInvoiceNumber, displayInvoiceDate, displayInvoiceTime, beatName, salesmanName, schemeDetails } = data;
+  const { orderId, company, retailer, cartItems, displayInvoiceNumber, displayInvoiceDate, displayInvoiceTime, beatName, salesmanName, schemeDetails, orderDiscount, orderTotal } = data;
+
+  // Translate retailer address if it contains non-English characters
+  const translatedRetailerAddress = await translateAddressToEnglish(retailer?.address || '');
+  const retailerWithTranslatedAddress = { ...retailer, address: translatedRetailerAddress };
 
   // Get display name - show only variant name if it's a variant, or base product name
   const getDisplayName = (item: any) => {
@@ -166,7 +223,7 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
   doc.setFillColor(31, 41, 55);
   doc.rect(0, 0, pageWidth, 52, "F");
 
-  // Logo image - compact size to match preview
+  // Logo image - maintain aspect ratio with max height
   let companyNameX = 15;
   if (company.logo_url) {
     try {
@@ -179,9 +236,30 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
         reader.readAsDataURL(blob);
       });
       const imgFormat = company.logo_url.toLowerCase().includes('.png') ? 'PNG' : 'JPEG';
-      // Logo size approximately 120x80 px (42x28 points)
-      doc.addImage(base64, imgFormat, 15, 10, 42, 28);
-      companyNameX = 60;
+      
+      // Get image dimensions to maintain aspect ratio
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = base64;
+      });
+      
+      // Calculate proportional dimensions with max height of 22 points
+      const maxHeight = 22;
+      const maxWidth = 40;
+      const aspectRatio = img.width / img.height;
+      let logoWidth = maxHeight * aspectRatio;
+      let logoHeight = maxHeight;
+      
+      // If width exceeds max, scale down based on width instead
+      if (logoWidth > maxWidth) {
+        logoWidth = maxWidth;
+        logoHeight = maxWidth / aspectRatio;
+      }
+      
+      doc.addImage(base64, imgFormat, 15, 12, logoWidth, logoHeight);
+      companyNameX = 18 + logoWidth;
     } catch (e) {
       console.warn("Failed to load logo image for invoice PDF:", e);
       companyNameX = 15;
@@ -236,25 +314,25 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0); // Retailer name in black for professional look
-  doc.text(retailer.name || "Customer Name", 15, yPos);
+  doc.text(retailerWithTranslatedAddress.name || "Customer Name", 15, yPos);
   
   doc.setTextColor(0, 0, 0);
   yPos += 5;
-  if (retailer.address) {
-    const addressLines = doc.splitTextToSize(retailer.address, 80);
+  if (retailerWithTranslatedAddress.address) {
+    const addressLines = doc.splitTextToSize(retailerWithTranslatedAddress.address, 80);
     doc.text(addressLines, 15, yPos);
     yPos += addressLines.length * 4;
   }
-  if (retailer.phone) {
-    doc.text(`Phone: ${retailer.phone}`, 15, yPos);
+  if (retailerWithTranslatedAddress.phone) {
+    doc.text(`Phone: ${retailerWithTranslatedAddress.phone}`, 15, yPos);
     yPos += 4;
   }
-  if (retailer.state) {
-    doc.text(`State: ${retailer.state}`, 15, yPos);
+  if (retailerWithTranslatedAddress.state) {
+    doc.text(`State: ${retailerWithTranslatedAddress.state}`, 15, yPos);
     yPos += 4;
   }
   // GST must always be shown - use XXXXXXXX if not available
-  doc.text(`GSTIN: ${retailer.gst_number || retailer.gstin || "XXXXXXXX"}`, 15, yPos);
+  doc.text(`GSTIN: ${retailerWithTranslatedAddress.gst_number || retailerWithTranslatedAddress.gstin || "XXXXXXXX"}`, 15, yPos);
 
   // Invoice details (right side) - add more space after header
   let invoiceY = 62;
@@ -299,8 +377,24 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
   // Calculate total discount for savings display
   let totalDiscount = 0;
   
+  // DUPLICATE FIX: Collapse duplicate line items before processing
+  // This handles cases where DB has accidental duplicate rows (same product, qty, rate, total)
+  const deduplicatedItems = cartItems.reduce((acc: any[], item: any) => {
+    const key = `${item.product_id || item.product_name}-${item.quantity}-${item.rate || item.price}-${item.unit}`;
+    const existingIndex = acc.findIndex((existing: any) => {
+      const existingKey = `${existing.product_id || existing.product_name}-${existing.quantity}-${existing.rate || existing.price}-${existing.unit}`;
+      return existingKey === key;
+    });
+    if (existingIndex === -1) {
+      acc.push(item);
+    } else {
+      console.log('[invoiceGenerator] Collapsing duplicate item:', item.product_name);
+    }
+    return acc;
+  }, []);
+  
   // Pre-process items with display normalization
-  const normalizedItems = cartItems.map(item => {
+  const normalizedItems = deduplicatedItems.map(item => {
     const normalized = normalizeItemForDisplay(item);
     return {
       ...item,
@@ -309,42 +403,44 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
       _displayRate: normalized.displayRate,
       _displayOriginalRate: normalized.displayOriginalRate,
       _displayDiscountAmount: normalized.displayDiscountAmount,
+      _storedTotal: normalized.storedTotal, // CRITICAL: Pass through stored total from order_items
     };
   });
   
-  // Items table with green header - show MRP and Offer Price if discounts exist
-  // Check if any item has a meaningful discount (original_rate > rate OR discount_amount > 0)
-  const hasAnyDiscount = normalizedItems.some(item => {
+  // Items table with green header - show MRP and Offer Price ONLY if item-level discounts exist
+  // Order-level discount is shown in totals section, not in item rows
+  const hasAnyItemDiscount = normalizedItems.some(item => {
     const discountAmt = Number(item.discount_amount) || 0;
-    const origRate = item._displayOriginalRate;
-    const effRate = item._displayRate;
-    return discountAmt > 0 || (origRate > effRate && effRate > 0);
+    return discountAmt > 0;
   });
   
   const tableData = normalizedItems.map((item, index) => {
     const displayQty = item._displayQty;
     const displayUnit = item._displayUnit;
-    const displayRate = item._displayRate;
     const displayOriginalRate = item._displayOriginalRate;
     const itemDiscount = item._displayDiscountAmount;
+    // CRITICAL: Use stored total directly from order_items - this is finalized cart data
+    const storedTotal = item._storedTotal || 0;
 
     // If we have stored invoice values (from edited invoices), use them directly
     const hasStoredValues = item.taxable_amount != null && item.sgst_amount != null && item.cgst_amount != null;
     
-    let effectiveRate: number;
     let originalRate: number;
     let rowTotal: number;
+    let effectiveRate: number;
     
     if (hasStoredValues) {
-      // Use stored values directly
+      // Use stored values directly (edited invoice case)
       effectiveRate = Number(item.price || item.rate) || 0;
       originalRate = Number(item.original_rate) || effectiveRate;
       rowTotal = Number(item.taxable_amount) || 0;
     } else {
-      // Use normalized display values
-      effectiveRate = displayRate;
+      // CRITICAL FIX: Use stored total from order_items directly
+      // This ensures invoice shows exactly what cart showed at order time
+      rowTotal = storedTotal;
       originalRate = displayOriginalRate;
-      rowTotal = effectiveRate * displayQty;
+      // Calculate effective rate from stored total for display consistency
+      effectiveRate = displayQty > 0 ? storedTotal / displayQty : originalRate;
     }
     
     totalDiscount += itemDiscount;
@@ -352,8 +448,10 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
     // Format quantity - show decimals only if needed
     const qtyStr = Number.isInteger(displayQty) ? displayQty.toString() : displayQty.toFixed(2);
     
-    // If there are discounts in the order, show MRP and Offer columns
-    if (hasAnyDiscount) {
+    // If there are item-level discounts in the order, show MRP and Offer columns
+    if (hasAnyItemDiscount) {
+      // Only show offer price if THIS item has a discount
+      const hasItemDiscount = itemDiscount > 0;
       return [
         (index + 1).toString(),
         getDisplayName(item),
@@ -361,29 +459,30 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
         displayUnit,
         qtyStr,
         `Rs.${formatExact(originalRate)}`, // MRP - exact
-        itemDiscount > 0 ? `Rs.${formatExact(effectiveRate)}` : "-", // Offer Price (or "-" if no discount) - exact
-        `Rs.${formatExact(rowTotal)}`, // Row total - exact
+        hasItemDiscount ? `Rs.${formatExact(effectiveRate)}` : "-", // Offer Price (or "-" if no discount for this item)
+        `Rs.${formatExact(rowTotal)}`, // Row total - use stored value
       ];
     } else {
+      // No discounts - show simpler table without OFFER column
       return [
         (index + 1).toString(),
         getDisplayName(item),
         item.hsn_code || "-",
         displayUnit,
         qtyStr,
-        `Rs.${formatExact(effectiveRate)}`, // Price - exact
-        `Rs.${formatExact(rowTotal)}`, // Row total - exact
+        `Rs.${formatExact(effectiveRate)}`, // Price (from stored total)
+        `Rs.${formatExact(rowTotal)}`, // Row total - use stored value
       ];
     }
   });
 
-  // Table headers based on whether discounts exist
-  const tableHeaders = hasAnyDiscount 
+  // Table headers based on whether item-level discounts exist
+  const tableHeaders = hasAnyItemDiscount 
     ? [["NO", "PRODUCT", "HSN", "UNIT", "QTY", "MRP", "OFFER", "TOTAL"]]
     : [["NO", "PRODUCT", "HSN/SAC", "UNIT", "QTY", "PRICE", "TOTAL"]];
 
-  // Column styles based on whether discounts exist
-  const columnStyles = hasAnyDiscount 
+  // Column styles based on whether item-level discounts exist
+  const columnStyles = hasAnyItemDiscount
     ? {
         0: { cellWidth: 12, halign: "center" as const },
         1: { cellWidth: 'auto' as const, halign: "left" as const },
@@ -437,20 +536,26 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
     margin: { left: 15, right: 15 },
   });
 
-  // Calculate totals - prefer stored invoice values when present
+  // Calculate totals - CRITICAL: Use order-level values when available
+  // This ensures invoice totals match exactly what cart showed at order time
   const hasStoredTotals = normalizedItems.some(item => 
     item.taxable_amount != null && item.sgst_amount != null && item.cgst_amount != null
   );
 
-  const subtotal = normalizedItems.reduce((sum, item) => {
+  // Calculate item subtotal (sum of all line items before order-level discount)
+  const itemSubtotal = normalizedItems.reduce((sum, item) => {
     if (hasStoredTotals && item.taxable_amount != null) {
       return sum + Number(item.taxable_amount);
     }
-    const displayQty = item._displayQty;
-    const displayRate = item._displayRate;
-    return sum + displayQty * displayRate;
+    // Use stored total from order_items
+    return sum + (item._storedTotal || 0);
   }, 0);
 
+  // Apply order-level discount if provided (from orders.discount_amount)
+  const appliedOrderDiscount = orderDiscount || 0;
+  const subtotal = Math.max(0, itemSubtotal - appliedOrderDiscount);
+
+  // Calculate GST on discounted subtotal
   const sgst = hasStoredTotals
     ? cartItems.reduce((sum, item) => sum + (Number(item.sgst_amount) || 0), 0)
     : subtotal * 0.025;
@@ -459,64 +564,84 @@ export async function generateTemplate4Invoice(data: InvoiceData): Promise<Blob>
     ? cartItems.reduce((sum, item) => sum + (Number(item.cgst_amount) || 0), 0)
     : subtotal * 0.025;
 
-  const total = hasStoredTotals && cartItems.some(item => item.total_amount != null)
-    ? cartItems.reduce((sum, item) => sum + (Number(item.total_amount) || 0), 0)
-    : (subtotal + sgst + cgst);
+  // CRITICAL: If orderTotal is provided, use it directly (this is the finalized amount)
+  // This ensures invoice total matches exactly what was shown in cart
+  const total = orderTotal 
+    ? orderTotal 
+    : (hasStoredTotals && cartItems.some(item => item.total_amount != null)
+        ? cartItems.reduce((sum, item) => sum + (Number(item.total_amount) || 0), 0)
+        : (subtotal + sgst + cgst));
+  
+  // Note: totalDiscount tracks item-level discounts, order-level discount is shown separately
   
   // Convert total to words (use rounded total for consistency)
   const roundedTotal = Math.round(total);
   const totalInWords = numberToWords(roundedTotal) + " Rupees Only";
 
-  // Totals section (right-aligned) - matching preview exactly
-  yPos = (doc as any).lastAutoTable.finalY + 10;
-  const rightCol = pageWidth - 15;
-  const labelCol = pageWidth - 55;
-
-  doc.setFontSize(9);
+  // Totals section - compact box
+  yPos = (doc as any).lastAutoTable.finalY + 6;
+  
+  // Calculate box dimensions - compact sizing
+  const totalsBoxWidth = 65;
+  const totalsBoxX = pageWidth - 15 - totalsBoxWidth;
+  const labelOffset = 3;
+  const valueOffset = totalsBoxWidth - 3;
+  
+  // Compact row heights - add extra row for discount if applicable
+  const hasOrderLevelDiscount = appliedOrderDiscount > 0;
+  const rowHeight = 5;
+  const totalRowHeight = 7;
+  // Rows: SUB-TOTAL, (DISCOUNT if any), SGST, CGST, then TOTAL bar
+  const numRows = 3 + (hasOrderLevelDiscount ? 1 : 0);
+  const totalsBoxHeight = (numRows * rowHeight) + totalRowHeight + 4;
+  
+  // Draw border box
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.rect(totalsBoxX, yPos - 1, totalsBoxWidth, totalsBoxHeight);
+  
+  let innerY = yPos + 3;
+  
+  doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(0, 0, 0);
   
-  doc.text("SUB-TOTAL", labelCol, yPos);
-  doc.text(`Rs.${formatExact(subtotal)}`, rightCol, yPos, { align: "right" });
+  // SUB-TOTAL (sum of item totals, before order-level discount)
+  doc.text("SUB-TOTAL", totalsBoxX + labelOffset, innerY);
+  doc.text(`Rs.${formatExact(itemSubtotal)}`, totalsBoxX + valueOffset, innerY, { align: "right" });
   
-  // Show "You Saved" if there are discounts
-  if (totalDiscount > 0) {
-    yPos += 5;
-    doc.setTextColor(22, 163, 74); // Green text for savings
+  // Show order-level discount if applicable
+  if (hasOrderLevelDiscount) {
+    innerY += rowHeight;
+    doc.setTextColor(22, 163, 74);
     doc.setFont("helvetica", "bold");
-    doc.text("YOU SAVED", labelCol, yPos);
-    doc.text(`Rs.${formatExact(totalDiscount)}`, rightCol, yPos, { align: "right" });
+    doc.text("DISCOUNT", totalsBoxX + labelOffset, innerY);
+    doc.text(`-Rs.${formatExact(appliedOrderDiscount)}`, totalsBoxX + valueOffset, innerY, { align: "right" });
     doc.setTextColor(0, 0, 0);
     doc.setFont("helvetica", "normal");
   }
   
-  yPos += 5;
-  doc.text("SGST (2.5%)", labelCol, yPos);
-  doc.text(`Rs.${formatExact(sgst)}`, rightCol, yPos, { align: "right" });
+  innerY += rowHeight;
+  doc.text("SGST (2.5%)", totalsBoxX + labelOffset, innerY);
+  doc.text(`Rs.${formatExact(sgst)}`, totalsBoxX + valueOffset, innerY, { align: "right" });
   
-  yPos += 5;
-  doc.text("CGST (2.5%)", labelCol, yPos);
-  doc.text(`Rs.${formatExact(cgst)}`, rightCol, yPos, { align: "right" });
+  innerY += rowHeight;
+  doc.text("CGST (2.5%)", totalsBoxX + labelOffset, innerY);
+  doc.text(`Rs.${formatExact(cgst)}`, totalsBoxX + valueOffset, innerY, { align: "right" });
 
-  // Total amount box (green background - centered text)
-  yPos += 6;
-  const totalBoxWidth = 65;
-  const totalBoxHeight = 10;
-  const totalBoxX = pageWidth - 15 - totalBoxWidth;
-  const totalBoxY = yPos - 3;
-  doc.setFillColor(22, 163, 74); // Green background
-  doc.rect(totalBoxX, totalBoxY, totalBoxWidth, totalBoxHeight, "F");
+  // Total amount bar (green)
+  innerY += rowHeight + 1;
+  doc.setFillColor(22, 163, 74);
+  doc.rect(totalsBoxX, innerY - 2, totalsBoxWidth, totalRowHeight, "F");
   
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  // Center the text horizontally and vertically in the box
-  const totalText = `Total amount: Rs.${formatRounded(total)}`;
+  doc.setFontSize(9);
+  const totalText = `Total: Rs.${formatRounded(total)}`;
   const textWidth = doc.getTextWidth(totalText);
-  const centerX = totalBoxX + totalBoxWidth / 2 - textWidth / 2;
-  const centerY = totalBoxY + totalBoxHeight / 2 + 3; // +3 to account for text baseline
-  doc.text(totalText, centerX, centerY);
+  doc.text(totalText, totalsBoxX + totalsBoxWidth / 2 - textWidth / 2, innerY + 3);
   
+  yPos = yPos + totalsBoxHeight + 2;
   doc.setTextColor(0, 0, 0);
   
   // Total in Words
@@ -794,10 +919,28 @@ export async function fetchAndGenerateInvoice(orderId: string): Promise<{ blob: 
   if (orderError) throw orderError;
 
   let order: any = dbOrder;
+  
+  // Also fetch from offline cache to supplement missing items
+  let offlineOrder = await offlineStorage.getById<any>(STORES.ORDERS, orderId);
+  
+  // If not found by ID, search by retailer+date (handles different IDs from sync)
+  if (!offlineOrder || (!offlineOrder.items && !offlineOrder.order_items)) {
+    const allCachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+    const matchingOrder = allCachedOrders.find((o: any) => {
+      if (!o.retailer_id || !order?.retailer_id) return false;
+      if (o.retailer_id !== order.retailer_id) return false;
+      // Match orders from same day
+      const cachedDate = new Date(o.created_at).toDateString();
+      const orderDate = new Date(order.created_at || order.order_date).toDateString();
+      return cachedDate === orderDate && (o.items?.length > 0 || o.order_items?.length > 0);
+    });
+    if (matchingOrder) {
+      offlineOrder = matchingOrder;
+    }
+  }
 
   // If order is not in DB yet (not synced), use offline cached order
   if (!order) {
-    const offlineOrder = await offlineStorage.getById<any>(STORES.ORDERS, orderId);
     if (offlineOrder) {
       console.log("💾 Using offline cached order for invoice generation");
       order = {
@@ -805,61 +948,176 @@ export async function fetchAndGenerateInvoice(orderId: string): Promise<{ blob: 
         order_items: offlineOrder.order_items || offlineOrder.items || [],
       };
     }
+  } else if (order && (!order.order_items || order.order_items.length === 0)) {
+    // CRITICAL FIX: Order exists in DB but items didn't sync yet
+    // Use items from offline cache
+    if (offlineOrder && (offlineOrder.items || offlineOrder.order_items)) {
+      console.log("💾 Order in DB but items missing - using offline cached items");
+      order.order_items = offlineOrder.order_items || offlineOrder.items || [];
+    }
   }
 
   if (!order) {
     throw new Error("Order not found in database or offline cache.");
   }
 
-  // Fetch company with template selection
-  const { data: company } = await supabase
-    .from("companies")
-    .select("*")
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+  // Fetch company with template selection - try online first, fallback to cache
+  let company: any = null;
+  try {
+    const { data: companyData } = await supabase
+      .from("companies")
+      .select("*")
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    company = companyData;
+    // Cache company for offline use
+    if (company) {
+      await offlineStorage.save(STORES.SYNC_METADATA, { id: 'company_cache', data: company });
+    }
+  } catch (e) {
+    console.log('📴 Offline: fetching company from cache');
+  }
+  
+  // Fallback to cached company if offline
+  if (!company) {
+    const cachedCompany = await offlineStorage.getById<any>(STORES.SYNC_METADATA, 'company_cache');
+    company = cachedCompany?.data;
+  }
 
-  if (!company) throw new Error("Company not found");
+  if (!company) {
+    // Use minimal fallback for offline invoice generation
+    company = { name: "Invoice", address: "", phone: "", gstin: "", state: "" };
+  }
 
-  // Fetch retailer with state
+  // Fetch retailer with state and beat_name - try online first, fallback to cache
   let retailer: any = null;
   if (order.retailer_id) {
-    const { data: retailerData } = await supabase
-      .from("retailers")
-      .select("name, address, phone, gst_number, state, beat_id")
-      .eq("id", order.retailer_id)
-      .single();
-    retailer = retailerData;
+    try {
+      const { data: retailerData } = await supabase
+        .from("retailers")
+        .select("name, address, phone, gst_number, state, beat_id, beat_name")
+        .eq("id", order.retailer_id)
+        .single();
+      retailer = retailerData;
+    } catch (e) {
+      console.log('📴 Offline: fetching retailer from cache');
+    }
+    
+    // Fallback to cached retailer
+    if (!retailer) {
+      const cachedRetailers = await offlineStorage.getAll<any>(STORES.RETAILERS);
+      retailer = cachedRetailers.find((r: any) => r.id === order.retailer_id);
+    }
   }
 
   if (!retailer) {
     retailer = { name: "Customer", address: "", phone: "", gst_number: "", state: "" };
   }
 
-  // Fetch beat name
-  let beatName = "";
-  if (retailer?.beat_id) {
-    const { data: beatData } = await supabase
-      .from("beats")
-      .select("beat_name")
-      .eq("id", retailer.beat_id)
-      .single();
-    beatName = beatData?.beat_name || "";
+  // Fetch beat name - try retailer.beat_name first, then lookup from beats table
+  let beatName = retailer?.beat_name || "";
+  if (!beatName && retailer?.beat_id) {
+    try {
+      const { data: beatData } = await supabase
+        .from("beats")
+        .select("beat_name")
+        .eq("id", retailer.beat_id)
+        .single();
+      beatName = beatData?.beat_name || "";
+    } catch (e) {
+      // Offline: try from beat_plans cache
+      const cachedBeatPlans = await offlineStorage.getAll<any>(STORES.BEAT_PLANS);
+      const matchingBeat = cachedBeatPlans.find((bp: any) => bp.beat_id === retailer.beat_id);
+      beatName = matchingBeat?.beat_name || "";
+    }
   }
 
-  // Fetch salesman name
+  // Fetch salesman name - try online first, fallback to cache
   let salesmanName = "";
   if (order.user_id) {
-    const { data: userData } = await supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", order.user_id)
-      .single();
-    salesmanName = userData?.full_name || "";
+    try {
+      const { data: userData } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", order.user_id)
+        .single();
+      salesmanName = userData?.full_name || "";
+      // Cache profile for offline use
+      if (userData) {
+        await offlineStorage.save(STORES.SYNC_METADATA, { id: `profile_${order.user_id}`, data: userData });
+      }
+    } catch (e) {
+      // Offline: try from cache
+      const cachedProfile = await offlineStorage.getById<any>(STORES.SYNC_METADATA, `profile_${order.user_id}`);
+      salesmanName = cachedProfile?.data?.full_name || "";
+    }
   }
 
   // Scheme details not stored in orders table currently
   let schemeDetails = "";
+
+  // Enrich order items with HSN codes and precise rates from products if missing
+  // This is optional enrichment - offline mode will work without it
+  const orderItemsWithHsn = await Promise.all(
+    (order.order_items || []).map(async (item: any) => {
+      let enrichedItem = { ...item };
+      
+      // Try to fetch HSN code and precise rate from product or variant (skip if offline)
+      if (item.product_id && navigator.onLine) {
+        try {
+          // First try to get from product
+          const { data: productData } = await supabase
+            .from("products")
+            .select("hsn_code, rate, unit")
+            .eq("id", item.product_id)
+            .maybeSingle();
+          
+          if (productData) {
+            // Set HSN code if missing
+            if (!enrichedItem.hsn_code) {
+              enrichedItem.hsn_code = productData.hsn_code;
+            }
+            
+            // Use product's precise rate for better display accuracy
+            // Product rate is stored in per-unit format (e.g., per KG for grams items)
+            // Only override if unit matches and we can use precise rate
+            if (productData.rate && productData.unit) {
+              const itemUnit = (item.unit || '').toLowerCase();
+              const isGramsUnit = itemUnit === 'grams' || itemUnit === 'gram' || itemUnit === 'g';
+              
+              // If product has precise rate stored (per KG), use it for display
+              if (isGramsUnit && productData.rate > 1) {
+                // Store the precise per-KG rate for display conversion
+                enrichedItem.precise_rate_per_kg = productData.rate;
+              }
+            }
+          }
+          
+          // Also check if it's a variant (product_id might be variant_id in some cases)
+          if (!enrichedItem.hsn_code) {
+            const { data: variantData } = await supabase
+              .from("product_variants")
+              .select("hsn_code, price")
+              .eq("id", item.product_id)
+              .maybeSingle();
+            
+            if (variantData?.hsn_code) {
+              enrichedItem.hsn_code = variantData.hsn_code;
+            }
+            if (variantData?.price && variantData.price > 1) {
+              enrichedItem.precise_rate_per_kg = variantData.price;
+            }
+          }
+        } catch (e) {
+          // Offline or error - continue with item as-is
+          console.log('📴 Offline: skipping product enrichment for invoice');
+        }
+      }
+      
+      return enrichedItem;
+    })
+  );
 
   const displayInvoiceNumber = (order as any).invoice_number || `INV-${order.id.substring(0, 8).toUpperCase()}`;
   const displayInvoiceDate = order.created_at ? new Date(order.created_at).toLocaleDateString("en-GB") : new Date().toLocaleDateString("en-GB");
@@ -888,13 +1146,16 @@ export async function fetchAndGenerateInvoice(orderId: string): Promise<{ blob: 
         orderId: order.id,
         company,
         retailer,
-        cartItems: order.order_items,
+        cartItems: orderItemsWithHsn,
         displayInvoiceNumber,
         displayInvoiceDate,
         displayInvoiceTime,
         beatName,
         salesmanName,
-        schemeDetails
+        schemeDetails,
+        // CRITICAL: Pass order-level discount and total for accurate invoice
+        orderDiscount: Number(order.discount_amount) || 0,
+        orderTotal: Number(order.total_amount) || undefined
       });
       break;
   }

@@ -33,6 +33,7 @@ import { useLocationFeature } from "@/hooks/useLocationFeature";
 import { useRetailerVisitTracking } from "@/hooks/useRetailerVisitTracking";
 import { RetailerVisitDetailsModal } from "./RetailerVisitDetailsModal";
 import { CreditScoreDisplay } from "./CreditScoreDisplay";
+import { CollectionTalkingPoints } from "./credit/CollectionTalkingPoints";
 import { offlineStorage, STORES } from "@/lib/offlineStorage";
 import { visitStatusCache } from "@/lib/visitStatusCache";
 import { retailerStatusRegistry } from "@/lib/retailerStatusRegistry";
@@ -42,13 +43,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { RetailerDetailModal } from "./RetailerDetailModal";
 import { FeedbackListView } from "./FeedbackListView";
 import { getLocalTodayDate } from "@/utils/dateUtils";
-import { VisitLoyaltyPanel } from "./loyalty/VisitLoyaltyPanel";
+import { LoyaltyScoreBadge } from "./loyalty/LoyaltyScoreBadge";
+import { VisitTrackingIndicator } from "./VisitTrackingIndicator";
 interface Visit {
   id: string;
   retailerId?: string;
   retailerName: string;
   address: string;
   phone: string;
+  contactName?: string;
   retailerCategory: string;
   status: "planned" | "in-progress" | "productive" | "unproductive" | "store-closed" | "cancelled";
   visitType: string;
@@ -194,6 +197,7 @@ export const VisitCard = ({
     is_credit_order: boolean;
     credit_paid_amount: number;
     invoice_number?: string;
+    distributor_name?: string | null;
   }>>([]);
   const [previousPendingCleared, setPreviousPendingCleared] = useState<number>(0);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
@@ -222,6 +226,8 @@ export const VisitCard = ({
   const [showVanSales, setShowVanSales] = useState(false);
   const [showRetailerOverview, setShowRetailerOverview] = useState(false);
   const [retailerOverviewData, setRetailerOverviewData] = useState<any>(null);
+  const [showCreditTalkingPoints, setShowCreditTalkingPoints] = useState(false);
+  const [creditLimitData, setCreditLimitData] = useState<{ creditLimit: number; score: number; avgDso: number } | null>(null);
   const {
     isVanSalesEnabled
   } = useVanSales();
@@ -264,7 +270,8 @@ export const VisitCard = ({
     formattedTimeSpent,
     startTracking,
     endTracking,
-    endAllActiveLogs
+    endAllActiveLogs,
+    recordAction
   } = useRetailerVisitTracking({
     retailerId: visit.retailerId || visit.id,
     retailerLat: visit.retailerLat,
@@ -294,6 +301,23 @@ export const VisitCard = ({
       subscription.unsubscribe();
     };
   }, [endAllActiveLogs]);
+
+  // Listen for order submission events to track checkout timing
+  useEffect(() => {
+    const handleOrderSubmitted = async (event: CustomEvent) => {
+      const { retailerId: eventRetailerId } = event.detail;
+      const currentRetailerId = visit.retailerId || visit.id;
+      if (eventRetailerId === currentRetailerId) {
+        await recordAction('order_submitted');
+      }
+    };
+    
+    window.addEventListener('orderSubmitted', handleOrderSubmitted as EventListener);
+    return () => {
+      window.removeEventListener('orderSubmitted', handleOrderSubmitted as EventListener);
+    };
+  }, [visit.retailerId, visit.id, recordAction]);
+
   const [showVisitDetailsModal, setShowVisitDetailsModal] = useState(false);
   
   // SYNC CACHE READ: Try to get status from cache OR use prop if it has authoritative status
@@ -402,11 +426,9 @@ export const VisitCard = ({
   const isTodaysVisit = selectedDate === localTodayString;
 
   // Ensure visit tracking ends when this card unmounts or user navigates away
-  useEffect(() => {
-    return () => {
-      try { endTracking?.(); } catch {}
-    };
-  }, [endTracking]);
+  // REMOVED: Do NOT call endTracking on unmount - it was incorrectly updating end_time to "now"
+  // Unmount happens for UI reasons (navigation, scroll) and must not affect visit tracking times
+  // The visit log's end_time is correctly updated only on actual user interactions via recordAction()
 
   // Load retailer data for overview modal
   useEffect(() => {
@@ -426,6 +448,122 @@ export const VisitCard = ({
     };
     loadRetailerData();
   }, [showRetailerOverview, visit.retailerId, visit.id]);
+
+  // AUTO-LOAD ORDERS FROM OFFLINE STORAGE ON MOUNT
+  // This ensures orders persist across navigation (e.g., going to Attendance and back)
+  useEffect(() => {
+    const loadOfflineOrdersOnMount = async () => {
+      if (!userId) return;
+      
+      const retailerId = visit.retailerId || visit.id;
+      const targetDate = selectedDate && selectedDate.length > 0 ? selectedDate : getLocalTodayDate();
+      const targetDateStr = targetDate.split('T')[0];
+      
+      try {
+        // Load orders from offline storage immediately (no network required)
+        const cachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+        
+        const matchingOrders = cachedOrders.filter((o: any) => {
+          const orderDateStr = (o.order_date || o.created_at || '').split('T')[0];
+          return o.user_id === userId && 
+                 o.retailer_id === retailerId && 
+                 orderDateStr === targetDateStr;
+        });
+        
+        if (matchingOrders.length > 0) {
+          console.log('[VisitCard] Auto-loaded orders from offline storage on mount:', matchingOrders.length);
+          
+          // Only set if current ordersTodayList is empty (don't override if already loaded)
+          if (ordersTodayList.length === 0) {
+            setOrdersTodayList(matchingOrders);
+            setLastOrderId(matchingOrders[0].id);
+            
+            // Calculate totals
+            const totalValue = matchingOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+            if (totalValue > 0) {
+              updateOrderValue(totalValue, 'cache');
+              setHasOrderToday(true);
+              setCurrentStatus('productive');
+              setStatusLoadedFromDB(true);
+              setPhase('completed');
+              
+              // Also extract items for immediate display in "View More"
+              let allItems: any[] = [];
+              matchingOrders.forEach((order: any) => {
+                const orderItems = order.items || order.order_items || [];
+                if (Array.isArray(orderItems)) {
+                  orderItems.forEach((item: any) => {
+                    allItems.push({
+                      product_name: item.product_name || item.name,
+                      quantity: item.quantity,
+                      rate: item.rate,
+                      original_rate: item.original_rate || item.rate,
+                      unit: item.unit || 'piece'
+                    });
+                  });
+                }
+              });
+              
+              if (allItems.length > 0) {
+                // Group items for display
+                const grouped = new Map<string, any>();
+                allItems.forEach(it => {
+                  const key = it.product_name;
+                  const existing = grouped.get(key);
+                  const qty = Number(it.quantity || 0);
+                  const rate = Number(it.rate || 0);
+                  const originalRate = Number(it.original_rate || it.rate || 0);
+                  const unit = it.unit || 'piece';
+                  const unitLower = unit.toLowerCase().trim();
+                  
+                  let displayQty = qty;
+                  let displayUnit = unit;
+                  let displayRate = originalRate || rate;
+                  
+                  if (unitLower === 'grams' || unitLower === 'g' || unitLower === 'gram') {
+                    displayQty = qty / 1000;
+                    displayUnit = 'KG';
+                    displayRate = (originalRate || rate) * 1000;
+                  }
+                  
+                  if (existing) {
+                    existing.displayQty += displayQty;
+                    existing.quantity += qty;
+                  } else {
+                    grouped.set(key, {
+                      product_name: key,
+                      quantity: qty,
+                      rate: rate,
+                      actualRate: displayRate,
+                      displayQty: displayQty,
+                      displayUnit: displayUnit
+                    });
+                  }
+                });
+                
+                setLastOrderItems(Array.from(grouped.values()));
+              }
+              
+              // Calculate payment states
+              const creditOrders = matchingOrders.filter((o: any) => !!o.is_credit_order);
+              const cashOrders = matchingOrders.filter((o: any) => !o.is_credit_order);
+              const paidFromCash = cashOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+              const totalPaidFromCredit = creditOrders.reduce((sum: number, o: any) => sum + Number(o.credit_paid_amount || 0), 0);
+              const creditOrdersTotal = creditOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+              
+              setPaidTodayAmount(paidFromCash + totalPaidFromCredit);
+              setCreditPendingAmount(Math.max(0, creditOrdersTotal - totalPaidFromCredit));
+              setIsCreditOrder(creditOrders.length > 0);
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[VisitCard] Error auto-loading offline orders:', e);
+      }
+    };
+    
+    loadOfflineOrdersOnMount();
+  }, [userId, visit.retailerId, visit.id, selectedDate]); // Run on mount and when key props change
 
   // Memoized retailer ID for this card
   const myRetailerId = visit.retailerId || visit.id;
@@ -795,10 +933,11 @@ export const VisitCard = ({
           }
 
           // Fetch orders for today - CRITICAL: Filter by user_id for proper data visibility
+          // Include distributor_name to show which distributor was mapped at order time
           // @ts-ignore to bypass TypeScript deep type inference issue
           const ordersResponse = await supabase
             .from('orders')
-            .select('*, order_items(*)')
+            .select('*, order_items(*), distributor_name')
             .eq('retailer_id', visitRetailerId)
             .eq('user_id', currentUserId)
             .eq('order_date', targetDate)
@@ -891,17 +1030,55 @@ export const VisitCard = ({
             
             setHasOrderToday(true);
           } else {
-            setHasOrderToday(false);
-            // Reset order value only if we have db-level confirmation of no orders
-            setActualOrderValue(0);
-            setOrderValueSource('db'); // Mark as from DB so cache can't overwrite
-            console.log('💰 Reset actualOrderValue to 0 (confirmed from DB)');
-            setIsCreditOrder(false);
-            setCreditPendingAmount(0);
-            setCreditPaidAmount(0);
-            setPaidTodayAmount(0);
-            setOrdersTodayList([]);
-            setPreviousPendingCleared(0);
+            // DB returned no orders - check offline storage as fallback before resetting
+            try {
+              const cachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+              const offlineOrders = cachedOrders.filter((o: any) => {
+                const orderDateStr = (o.order_date || o.created_at || '').split('T')[0];
+                return o.user_id === currentUserId && 
+                       o.retailer_id === visitRetailerId && 
+                       orderDateStr === targetDate;
+              });
+              
+              if (offlineOrders.length > 0) {
+                console.log('[VisitCard] DB returned no orders but found in offline storage:', offlineOrders.length);
+                setOrdersTodayList(offlineOrders);
+                setLastOrderId(offlineOrders[0].id);
+                
+                const totalValue = offlineOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
+                if (totalValue > 0) {
+                  updateOrderValue(totalValue, 'cache');
+                  setHasOrderToday(true);
+                  setCurrentStatus('productive');
+                  setStatusLoadedFromDB(true);
+                  setPhase('completed');
+                }
+              } else {
+                // Truly no orders anywhere - reset
+                setHasOrderToday(false);
+                setActualOrderValue(0);
+                setOrderValueSource('db');
+                console.log('💰 Reset actualOrderValue to 0 (confirmed from DB and offline)');
+                setIsCreditOrder(false);
+                setCreditPendingAmount(0);
+                setCreditPaidAmount(0);
+                setPaidTodayAmount(0);
+                setOrdersTodayList([]);
+                setPreviousPendingCleared(0);
+              }
+            } catch (cacheErr) {
+              console.log('[VisitCard] Offline fallback error:', cacheErr);
+              // Reset on error
+              setHasOrderToday(false);
+              setActualOrderValue(0);
+              setOrderValueSource('db');
+              setIsCreditOrder(false);
+              setCreditPendingAmount(0);
+              setCreditPaidAmount(0);
+              setPaidTodayAmount(0);
+              setOrdersTodayList([]);
+              setPreviousPendingCleared(0);
+            }
           }
     } catch (error) {
       console.log('❌ Status check error:', error);
@@ -1711,6 +1888,9 @@ export const VisitCard = ({
 
       // For check-out: skip photo and process immediately
       if (action === 'checkout') {
+        // Record checkout action for time tracking
+        await recordAction('checkout');
+        
         // Check-out process (no photo required)
         const todayStart = new Date(today);
         todayStart.setHours(0, 0, 0, 0);
@@ -1873,8 +2053,8 @@ export const VisitCard = ({
       // Generate a temporary visit ID for cache operations
       const tempVisitId = currentVisitId || `offline_${cachedUserId}_${retailerId}_${today}_${Date.now()}`;
       
-      // Update local caches/storage (and await) so other screens refresh reliably
-      await Promise.allSettled([
+      // FIRE-AND-FORGET: Update local caches (don't await - makes response instant)
+      Promise.allSettled([
         visitStatusCache.set(tempVisitId, retailerId, cachedUserId, today, 'unproductive', undefined, reason),
         updateVisitStatusInSnapshot(cachedUserId, today, retailerId, 'unproductive', reason),
         offlineStorage.save(STORES.VISITS, {
@@ -2052,6 +2232,8 @@ export const VisitCard = ({
       });
     } else {
       setShowNoOrderModal(true);
+      // Record action for time tracking (offline-first, device time)
+      recordAction('no_order').catch(err => console.error('No order tracking failed:', err));
     }
   };
   const handleViewAnalytics = async (visitId: string) => {
@@ -2070,6 +2252,7 @@ export const VisitCard = ({
     } catch (error) {
       console.log('Analytics view recording error:', error);
     }
+    recordAction('analytics').catch(() => {});
     setShowAnalyticsModal(true);
   };
   const loadLastOrder = async () => {
@@ -2094,39 +2277,101 @@ export const VisitCard = ({
       const dayEnd = new Date(targetDate);
       dayEnd.setHours(23, 59, 59, 999);
       
-      // First try Supabase
-      const {
-        data: dbOrders
-      } = await supabase.from('orders').select('id, created_at, total_amount, is_credit_order, credit_paid_amount, invoice_number').eq('user_id', user.id).eq('retailer_id', retailerId).eq('status', 'confirmed').gte('created_at', dayStart.toISOString()).lte('created_at', dayEnd.toISOString());
-      
-      // Also check offline storage for orders not yet synced
+      // First try offline storage (instant) - always check this first for responsiveness
       let offlineOrders: any[] = [];
       try {
         const cachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+        // Format target date as YYYY-MM-DD for comparison
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+        
         offlineOrders = cachedOrders.filter((o: any) => {
+          // Check by order_date first (exact date match), fallback to created_at
+          if (o.order_date) {
+            const orderDateStr = o.order_date.split('T')[0];
+            return o.user_id === user.id && o.retailer_id === retailerId && orderDateStr === targetDateStr;
+          }
+          // Fallback to created_at timestamp comparison
           const orderDate = new Date(o.created_at);
-          return (
-            o.user_id === user.id &&
-            o.retailer_id === retailerId &&
-            orderDate >= dayStart &&
-            orderDate <= dayEnd
-          );
+          return o.user_id === user.id && o.retailer_id === retailerId && orderDate >= dayStart && orderDate <= dayEnd;
         });
+        console.log('[VisitCard] Offline orders found:', offlineOrders.length, 'for retailer:', retailerId);
       } catch (e) {
         console.log('[VisitCard] Error reading offline orders:', e);
       }
       
-      // Merge orders, avoiding duplicates (prefer DB version)
-      const dbOrderIds = new Set((dbOrders || []).map(o => o.id));
-      const uniqueOfflineOrders = offlineOrders.filter(o => !dbOrderIds.has(o.id));
-      const orders = [...(dbOrders || []), ...uniqueOfflineOrders];
+      // Then try Supabase (if online) with timeout to avoid blocking
+      let dbOrders: any[] = [];
+      if (navigator.onLine) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+          
+          const { data } = await supabase
+            .from('orders')
+            .select('id, created_at, total_amount, is_credit_order, credit_paid_amount, invoice_number, idempotency_key, order_items(product_name, quantity, rate, original_rate, total, unit)')
+            .eq('user_id', user.id)
+            .eq('retailer_id', retailerId)
+            .eq('status', 'confirmed')
+            .gte('created_at', dayStart.toISOString())
+            .lte('created_at', dayEnd.toISOString())
+            .abortSignal(controller.signal);
+          
+          clearTimeout(timeoutId);
+          dbOrders = data || [];
+        } catch (e: any) {
+          if (e.name === 'AbortError') {
+            console.log('[VisitCard] DB fetch timed out, using offline data');
+          } else {
+            console.log('[VisitCard] Error fetching orders from DB:', e);
+          }
+        }
+      }
       
-      setOrdersTodayList(orders as any);
-      if (orders.length > 0) {
+      // Merge orders: prioritize DB for metadata but preserve offline items
+      // DUPLICATE FIX: Dedupe by BOTH id AND idempotency_key
+      const mergedOrders: any[] = [];
+      const dbOrderMap = new Map(dbOrders.map(o => [o.id, o]));
+      const dbIdempotencyMap = new Map(dbOrders.filter(o => o.idempotency_key).map(o => [o.idempotency_key, o]));
+      const offlineOrderMap = new Map(offlineOrders.map(o => [o.id, o]));
+      
+      // Add all DB orders, enriching with offline item data if available
+      dbOrders.forEach(dbOrder => {
+        // Check offline by ID or by idempotency_key
+        let offlineVersion = offlineOrderMap.get(dbOrder.id);
+        if (!offlineVersion && dbOrder.idempotency_key) {
+          offlineVersion = offlineOrders.find((o: any) => o.idempotency_key === dbOrder.idempotency_key);
+        }
+        
+        // If DB order has no items but offline version does, use offline items
+        const hasDBItems = dbOrder.order_items && dbOrder.order_items.length > 0;
+        const hasOfflineItems = offlineVersion?.items && offlineVersion.items.length > 0;
+        
+        if (!hasDBItems && hasOfflineItems) {
+          mergedOrders.push({ ...dbOrder, items: offlineVersion.items });
+        } else if (hasDBItems) {
+          mergedOrders.push({ ...dbOrder, items: dbOrder.order_items });
+        } else {
+          mergedOrders.push(dbOrder);
+        }
+      });
+      
+      // Add offline-only orders (not in DB yet) - check by both id AND idempotency_key
+      offlineOrders.forEach(offlineOrder => {
+        const alreadyInDB = dbOrderMap.has(offlineOrder.id) || 
+          (offlineOrder.idempotency_key && dbIdempotencyMap.has(offlineOrder.idempotency_key));
+        if (!alreadyInDB) {
+          mergedOrders.push(offlineOrder);
+        }
+      });
+      
+      console.log('[VisitCard] Merged orders:', mergedOrders.length, 'with items:', mergedOrders.filter(o => o.items?.length > 0).length);
+      
+      setOrdersTodayList(mergedOrders as any);
+      if (mergedOrders.length > 0) {
         // CRITICAL FIX: Also calculate and set order totals when loading order details
-        const totalOrderValue = orders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
-        const creditOrders = orders.filter((o: any) => !!o.is_credit_order);
-        const cashOrders = orders.filter((o: any) => !o.is_credit_order);
+        const totalOrderValue = mergedOrders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+        const creditOrders = mergedOrders.filter((o: any) => !!o.is_credit_order);
+        const cashOrders = mergedOrders.filter((o: any) => !o.is_credit_order);
         const paidFromCash = cashOrders.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0);
         const totalPaidFromCredit = creditOrders.reduce((sum: number, o: any) => sum + Number(o.credit_paid_amount || 0), 0);
         const totalPaidToday = paidFromCash + totalPaidFromCredit;
@@ -2135,7 +2380,6 @@ export const VisitCard = ({
         
         // Update the order value and payment states
         if (totalOrderValue > 0) {
-          // This is from DB fetch, so use 'db' source
           updateOrderValue(totalOrderValue, 'db');
           setPaidTodayAmount(totalPaidToday);
           setCreditPendingAmount(updatedPending);
@@ -2143,25 +2387,21 @@ export const VisitCard = ({
         }
         
         // Store the most recent order ID for invoice generation
-        setLastOrderId(orders[0].id);
+        setLastOrderId(mergedOrders[0].id);
         
-        // For order items, first try from DB
-        const dbOrderIds_arr = (dbOrders || []).map(o => o.id);
+        // Extract items from merged orders (items are already attached from merge logic above)
         let allItems: any[] = [];
         
-        if (dbOrderIds_arr.length > 0) {
-          const { data: items } = await supabase.from('order_items').select('product_name, quantity, rate, total, order_id, unit').in('order_id', dbOrderIds_arr);
-          allItems = items || [];
-        }
-        
-        // For offline orders, get items from order.items property (stored with order)
-        uniqueOfflineOrders.forEach((order: any) => {
-          if (order.items && Array.isArray(order.items)) {
-            order.items.forEach((item: any) => {
+        // Get items from all merged orders
+        mergedOrders.forEach((order: any) => {
+          const orderItems = order.items || order.order_items || [];
+          if (Array.isArray(orderItems)) {
+            orderItems.forEach((item: any) => {
               allItems.push({
                 product_name: item.product_name || item.name,
                 quantity: item.quantity,
                 rate: item.rate,
+                original_rate: item.original_rate || item.rate,
                 total: item.total || (item.quantity * item.rate),
                 order_id: order.id,
                 unit: item.unit || 'piece'
@@ -2169,22 +2409,68 @@ export const VisitCard = ({
             });
           }
         });
+        
+        // If still no items, try fetching from DB directly (fallback)
+        if (allItems.length === 0 && dbOrders.length > 0 && navigator.onLine) {
+          try {
+            const dbOrderIds_arr = dbOrders.map(o => o.id);
+            const { data: items } = await supabase.from('order_items').select('product_name, quantity, rate, original_rate, total, order_id, unit').in('order_id', dbOrderIds_arr);
+            if (items && items.length > 0) {
+              allItems = items;
+            }
+          } catch (e) {
+            console.log('[VisitCard] Error fetching order items from DB:', e);
+          }
+        }
+        
+        // Final fallback: check offline cache by retailer+date
+        if (allItems.length === 0) {
+          try {
+            const allCachedOrders = await offlineStorage.getAll<any>(STORES.ORDERS);
+            const targetDateStr = targetDate.toISOString().split('T')[0];
+            const matchingOrder = allCachedOrders.find((o: any) => {
+              if (o.retailer_id !== retailerId) return false;
+              const orderDateStr = (o.order_date || o.created_at || '').split('T')[0];
+              return orderDateStr === targetDateStr && o.items && o.items.length > 0;
+            });
+            
+            if (matchingOrder && matchingOrder.items) {
+              matchingOrder.items.forEach((item: any) => {
+                allItems.push({
+                  product_name: item.product_name || item.name,
+                  quantity: item.quantity,
+                  rate: item.rate,
+                  original_rate: item.original_rate || item.rate,
+                  total: item.total || (item.quantity * item.rate),
+                  order_id: matchingOrder.id,
+                  unit: item.unit || 'piece'
+                });
+              });
+            }
+          } catch (e) {
+            console.log('[VisitCard] Fallback cache lookup failed:', e);
+          }
+        }
+        
+        console.log('[VisitCard] Total items found:', allItems.length);
 
         // Helper function to convert quantity and rate for display
-        const getDisplayValues = (qty: number, rate: number, total: number, unit: string) => {
+        // Uses original_rate (MRP from product master) for accurate display
+        const getDisplayValues = (qty: number, rate: number, originalRate: number, total: number, unit: string) => {
           const unitLower = (unit || '').toLowerCase().trim();
+          // Use original_rate for display (full precision), fallback to rate
+          const displayRateBase = originalRate || rate;
           
-          // If unit is grams and quantity >= 1000, convert to kg
-          if ((unitLower === 'grams' || unitLower === 'g' || unitLower === 'gram') && qty >= 1000) {
+          // Always convert grams to kg for display (consistent with invoice)
+          if (unitLower === 'grams' || unitLower === 'g' || unitLower === 'gram') {
             const kgQty = qty / 1000;
-            // Rate per kg = total / kgQty
-            const ratePerKg = total / kgQty;
-            return { displayQty: kgQty, displayUnit: 'kg', displayRate: ratePerKg };
+            // Use original rate * 1000 to get per KG rate (matches product master)
+            const ratePerKg = displayRateBase * 1000;
+            return { displayQty: kgQty, displayUnit: 'KG', displayRate: ratePerKg };
           }
           
-          // For other units, use rate from total/quantity to get actual discounted rate
-          const actualRate = qty > 0 ? total / qty : rate;
-          return { displayQty: qty, displayUnit: unit, displayRate: actualRate };
+          // For other units, use the original rate directly
+          return { displayQty: qty, displayUnit: unit, displayRate: displayRateBase };
         };
 
         // Group items by product for a clean summary
@@ -2202,10 +2488,11 @@ export const VisitCard = ({
           const existing = grouped.get(key);
           const qty = Number(it.quantity || 0);
           const rate = Number(it.rate || 0);
+          const originalRate = Number(it.original_rate || it.rate || 0);
           const total = Number(it.total || 0);
           const unit = it.unit || 'piece';
           
-          const { displayQty, displayUnit, displayRate } = getDisplayValues(qty, rate, total, unit);
+          const { displayQty, displayUnit, displayRate } = getDisplayValues(qty, rate, originalRate, total, unit);
           
           if (existing) {
             // For aggregation, sum display quantities if same unit
@@ -2245,28 +2532,69 @@ export const VisitCard = ({
         {/* Header - Retailer info and status */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-card-foreground text-sm sm:text-base">
-                <button onClick={() => setShowRetailerOverview(true)} className="text-left hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline" title="View retailer details">
-                  {visit.retailerName}
-                </button>
-              </h3>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                <h3 className="font-semibold text-card-foreground text-sm sm:text-base truncate">
+                  <button onClick={() => setShowRetailerOverview(true)} className="text-left hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline" title="View retailer details">
+                    {visit.retailerName}
+                  </button>
+                </h3>
+                
+                {/* Phone Order Badge - only shown if applicable */}
+                {currentLog?.is_phone_order && (
+                  <span className="flex items-center gap-1 text-xs text-blue-600 font-medium">
+                    📞 Phone Order
+                  </span>
+                )}
+              </div>
               
-              {/* Phone Order Badge - only shown if applicable */}
-              {currentLog?.is_phone_order && (
-                <span className="flex items-center gap-1 text-xs text-blue-600 font-medium">
-                  📞 Phone Order
-                </span>
-              )}
+              {/* Location and Phone icons - right aligned */}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <a 
+                  href={`https://www.google.com/maps/search/?api=1&query=${visit.retailerLat && visit.retailerLng ? `${visit.retailerLat},${visit.retailerLng}` : encodeURIComponent(visit.address || '')}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-primary hover:text-primary/80 cursor-pointer p-1 rounded-full hover:bg-primary/10 transition-colors" 
+                  onClick={e => e.stopPropagation()} 
+                  title="Open in Google Maps"
+                >
+                  <MapPin size={16} />
+                </a>
+                <a 
+                  href={`tel:${(visit.phone || '').replace(/\s+/g, '')}`} 
+                  className="text-primary hover:text-primary/80 cursor-pointer p-1 rounded-full hover:bg-primary/10 transition-colors" 
+                  onClick={e => {
+                    e.stopPropagation();
+                    const cleaned = (visit.phone || '').replace(/\s+/g, '');
+                    if (cleaned) window.location.href = `tel:${cleaned}`;
+                  }} 
+                  title="Call"
+                >
+                  <Phone size={16} />
+                </a>
+              </div>
             </div>
+            
+            {/* Visit Tracking Indicator - shows after first action (check-in) */}
+            {currentLog && (
+              <div className="mt-1">
+                <VisitTrackingIndicator
+                  locationStatus={trackingLocationStatus}
+                  checkInTime={currentLog.start_time}
+                  distance={trackingDistance}
+                  onClick={() => setShowVisitDetailsModal(true)}
+                />
+              </div>
+            )}
+            
             {visit.retailerId && (
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <CreditScoreDisplay retailerId={visit.retailerId} variant="compact" />
-                <VisitLoyaltyPanel retailerId={visit.retailerId} compact />
+                <LoyaltyScoreBadge retailerId={visit.retailerId} />
               </div>
             )}
           </div>
-          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
+          <div className="flex flex-col items-start sm:items-end gap-1">
             <div className="flex flex-wrap gap-1">
               <Badge className={`${getStatusColor(displayStatus)} text-xs px-2 py-1`}>
                 {getStatusText(displayStatus)}
@@ -2289,11 +2617,14 @@ export const VisitCard = ({
                   <UserCheck size={12} className="mr-1" />
                   Joint Visit
                 </Badge>}
+              {hasStockRecords && <Badge className="bg-blue-500 text-white hover:bg-blue-600 text-xs px-2 py-1 cursor-pointer transition-all" variant="secondary" onClick={() => {
+                  recordAction('view_stock').catch(() => {});
+                  setShowStockDataModal(true);
+                }}>
+                  <Package size={12} className="mr-1" />
+                  {stockRecordCount} Stock{stockRecordCount !== 1 ? 's' : ''}
+                </Badge>}
             </div>
-            {hasStockRecords && <Badge className="bg-blue-500 text-white hover:bg-blue-600 text-xs px-2 py-1 cursor-pointer transition-all" variant="secondary" onClick={() => setShowStockDataModal(true)}>
-                <Package size={12} className="mr-1" />
-                {stockRecordCount} Stock{stockRecordCount !== 1 ? 's' : ''}
-              </Badge>}
             <div className="text-xs text-muted-foreground">{visit.retailerCategory}</div>
           </div>
         </div>
@@ -2317,30 +2648,30 @@ export const VisitCard = ({
                     </p>
                   )}
                 </div>
-                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowPaymentModal(true)}>
-                  <IndianRupee className="w-3 h-3" />
-                  Make Payment
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-7 gap-1 text-xs text-primary"
+                    onClick={() => {
+                      recordAction('collection_tips').catch(() => {});
+                      setShowCreditTalkingPoints(true);
+                    }}
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                    Tips
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => {
+                    setShowPaymentModal(true);
+                    // Record action for time tracking
+                    recordAction('payment').catch(err => console.error('Payment tracking failed:', err));
+                  }}>
+                    <IndianRupee className="w-3 h-3" />
+                    Pay
+                  </Button>
+                </div>
               </div>
             </div>}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
-            <div className="flex items-center gap-1 flex-1 min-w-0">
-              <MapPin size={12} className="sm:size-3.5 flex-shrink-0" />
-            <a href={`https://www.google.com/maps/search/?api=1&query=${visit.retailerLat && visit.retailerLng ? `${visit.retailerLat},${visit.retailerLng}` : encodeURIComponent(visit.address || '')}`} target="_blank" rel="noopener noreferrer" className="truncate text-primary hover:underline cursor-pointer" onClick={e => e.stopPropagation()} title="Open in Google Maps">
-  {visit.address}
-            </a>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <a href={`tel:${(visit.phone || '').replace(/\s+/g, '')}`} className="flex items-center gap-1 text-primary hover:underline cursor-pointer" onClick={e => {
-              e.stopPropagation();
-              const cleaned = (visit.phone || '').replace(/\s+/g, '');
-              if (cleaned) window.location.href = `tel:${cleaned}`;
-            }} title="Call">
-                <Phone size={12} className="sm:size-3.5" />
-                <span>{visit.phone}</span>
-              </a>
-            </div>
-          </div>
         </div>
 
         <div className="space-y-2">
@@ -2433,12 +2764,8 @@ export const VisitCard = ({
                     console.error('Background ensureVisit failed:', err);
                   }
 
-                  // Run tracking in background
-                  try {
-                    await startTracking('order', skipCheckInReason === 'phone-order');
-                  } catch (err) {
-                    console.error('Background tracking failed:', err);
-                  }
+                  // NOTE: Tracking is now handled in OrderEntry on first user action
+                  // Do NOT record action here - page open is not a meaningful interaction
                 })();
               }}
               title={
@@ -2461,11 +2788,14 @@ export const VisitCard = ({
               className={`p-1.5 sm:p-2 h-8 sm:h-10 text-xs sm:text-sm flex flex-col items-center gap-0.5 ${
                 (hasRetailerFeedback || hasCompetitionData) ? "bg-success text-success-foreground" : ""
               }`}
-              onClick={async () => {
-            // Start tracking visit time and location
-            await startTracking('feedback', skipCheckInReason === 'phone-order');
-            setShowFeedbackModal(true);
-          }} title="Feedback - Branding, Retailer Feedback & Competition Insights">
+              onClick={() => {
+                // Open instantly (do not block on slow network/offline)
+                setShowFeedbackModal(true);
+                // NOTE: Tracking is now handled when user clicks a specific feedback option
+                // Do NOT record action here - modal open is not a meaningful interaction
+              }}
+              title="Feedback - Branding, Retailer Feedback & Competition Insights"
+            >
               <MessageSquare size={12} className="sm:size-3.5" />
               <span className="text-xs">Feedback</span>
             </Button>
@@ -2490,8 +2820,8 @@ export const VisitCard = ({
               const visitId = await ensureVisit(user.id, retailerId, today);
               setCurrentVisitId(visitId);
 
-              // Start tracking visit time and location
-              await startTracking('ai', skipCheckInReason === 'phone-order');
+              // Record action for time tracking (offline-first, device time)
+              await recordAction('ai');
               setShowAIInsights(true);
             } catch (err: any) {
               console.error('Open AI insights error', err);
@@ -2512,7 +2842,8 @@ export const VisitCard = ({
                 <span className="text-sm font-medium">
                   {selectedDate ? `${new Date(selectedDate).toDateString() === new Date().toDateString() ? "Today's" : new Date(selectedDate).toLocaleDateString()} Order` : "Today's Order"}
                 </span>
-                <Button variant="ghost" size="sm" className="h-7" onClick={async () => {
+              <Button variant="ghost" size="sm" className="h-7" onClick={async () => {
+              recordAction('view_order').catch(() => {});
               const next = !orderPreviewOpen;
               setOrderPreviewOpen(next);
               if (next && lastOrderItems.length === 0) {
@@ -2526,6 +2857,13 @@ export const VisitCard = ({
               {orderPreviewOpen && <>
                   {/* Order Summary (All payments) */}
                   <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md space-y-1">
+                    {/* Show distributor name if available */}
+                    {ordersTodayList.length > 0 && ordersTodayList[0]?.distributor_name && (
+                      <div className="flex justify-between items-center text-xs pb-1 border-b border-amber-200 dark:border-amber-700">
+                        <span className="text-muted-foreground">Distributor:</span>
+                        <span className="font-medium text-primary">{ordersTodayList[0].distributor_name}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-muted-foreground">Total Amount:</span>
                       <span className="font-semibold">₹{Math.round(actualOrderValue).toLocaleString()}</span>
@@ -2598,12 +2936,16 @@ export const VisitCard = ({
                   <p className="font-medium mb-1">📍 Location & Camera Required</p>
                   <p className="text-xs">Please allow location and camera access when prompted for check-in.</p>
                 </div>}
-              {isLocationEnabled && <div className="grid grid-cols-2 gap-2">
-                <Button onClick={() => handleCheckInOut('checkin')} className={`w-full h-12 text-base font-medium ${isCheckedIn || !isTodaysVisit ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-primary hover:bg-primary/90'}`} disabled={isCheckedIn || !isTodaysVisit}>
+            {isLocationEnabled && <div className="grid grid-cols-2 gap-2">
+                <Button onClick={() => {
+                  recordAction('check_in').catch(() => {});
+                  handleCheckInOut('checkin');
+                }} className={`w-full h-12 text-base font-medium ${isCheckedIn || !isTodaysVisit ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-primary hover:bg-primary/90'}`} disabled={isCheckedIn || !isTodaysVisit}>
                   <LogIn className="mr-2 h-5 w-5" />
                   {isCheckedIn ? 'Checked In' : 'Check In'}
                 </Button>
                 <Button onClick={async () => {
+                recordAction('phone_order').catch(() => {});
                 try {
                   const {
                     data: {
@@ -2984,7 +3326,7 @@ export const VisitCard = ({
               <Button 
                 variant="outline" 
                 className={`w-full h-auto py-4 px-4 flex items-center gap-4 hover:bg-primary/5 hover:border-primary/50 transition-all group ${hasRetailerFeedback ? 'border-green-300 bg-green-50/50 dark:bg-green-900/20' : ''}`} 
-                onClick={() => { setFeedbackListType('retailer'); setShowFeedbackModal(false); }}
+                onClick={() => { recordAction('feedback').catch(() => {}); setFeedbackListType('retailer'); setShowFeedbackModal(false); }}
               >
                 <div className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${hasRetailerFeedback ? 'bg-green-100 dark:bg-green-900/50' : 'bg-blue-100 dark:bg-blue-900/30 group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50'}`}>
                   <MessageSquare size={22} className={hasRetailerFeedback ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'} />
@@ -3001,7 +3343,7 @@ export const VisitCard = ({
               <Button 
                 variant="outline" 
                 className={`w-full h-auto py-4 px-4 flex items-center gap-4 hover:bg-primary/5 hover:border-primary/50 transition-all group ${hasBrandingRequest ? 'border-green-300 bg-green-50/50 dark:bg-green-900/20' : ''}`} 
-                onClick={() => { setFeedbackListType('branding'); setShowFeedbackModal(false); }}
+                onClick={() => { recordAction('feedback').catch(() => {}); setFeedbackListType('branding'); setShowFeedbackModal(false); }}
               >
                 <div className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${hasBrandingRequest ? 'bg-green-100 dark:bg-green-900/50' : 'bg-orange-100 dark:bg-orange-900/30 group-hover:bg-orange-200 dark:group-hover:bg-orange-800/50'}`}>
                   <Paintbrush size={22} className={hasBrandingRequest ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'} />
@@ -3019,7 +3361,7 @@ export const VisitCard = ({
                 <Button 
                   variant="outline" 
                   className={`w-full h-auto py-4 px-4 flex items-center gap-4 hover:bg-primary/5 hover:border-primary/50 transition-all group ${hasJointSalesFeedback ? 'border-green-300 bg-green-50/50 dark:bg-green-900/20' : ''}`} 
-                  onClick={() => { setFeedbackListType('joint-sales'); setShowFeedbackModal(false); }}
+                  onClick={() => { recordAction('feedback').catch(() => {}); setFeedbackListType('joint-sales'); setShowFeedbackModal(false); }}
                 >
                   <div className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${hasJointSalesFeedback ? 'bg-green-100 dark:bg-green-900/50' : 'bg-green-100 dark:bg-green-900/30 group-hover:bg-green-200 dark:group-hover:bg-green-800/50'}`}>
                     <Users size={22} className={hasJointSalesFeedback ? 'text-green-600 dark:text-green-400' : 'text-green-600 dark:text-green-400'} />
@@ -3038,7 +3380,7 @@ export const VisitCard = ({
                 <Button 
                   variant="outline" 
                   className={`w-full h-auto py-4 px-4 flex items-center gap-4 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-300 dark:hover:border-purple-700 transition-all group ${hasJointSalesFeedback ? 'border-green-300 bg-green-50/50 dark:bg-green-900/20' : ''}`} 
-                  onClick={() => { setFeedbackListType('joint-sales'); setShowFeedbackModal(false); }}
+                  onClick={() => { recordAction('feedback').catch(() => {}); setFeedbackListType('joint-sales'); setShowFeedbackModal(false); }}
                 >
                   <div className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${hasJointSalesFeedback ? 'bg-green-100 dark:bg-green-900/50' : 'bg-purple-100 dark:bg-purple-900/30 group-hover:bg-purple-200 dark:group-hover:bg-purple-800/50'}`}>
                     <UserCheck size={22} className={hasJointSalesFeedback ? 'text-green-600 dark:text-green-400' : 'text-purple-600 dark:text-purple-400'} />
@@ -3056,7 +3398,7 @@ export const VisitCard = ({
               <Button 
                 variant="outline" 
                 className={`w-full h-auto py-4 px-4 flex items-center gap-4 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-300 dark:hover:border-red-700 transition-all group ${hasCompetitionData ? 'border-green-300 bg-green-50/50 dark:bg-green-900/20' : ''}`} 
-                onClick={() => { setFeedbackListType('competition'); setShowFeedbackModal(false); }}
+                onClick={() => { recordAction('feedback').catch(() => {}); setFeedbackListType('competition'); setShowFeedbackModal(false); }}
               >
                 <div className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${hasCompetitionData ? 'bg-green-100 dark:bg-green-900/50' : 'bg-red-100 dark:bg-red-900/30 group-hover:bg-red-200 dark:group-hover:bg-red-800/50'}`}>
                   <BarChart3 size={22} className={hasCompetitionData ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'} />
@@ -3193,6 +3535,25 @@ export const VisitCard = ({
             }}
           />
         )}
+
+        {/* Credit Talking Points Dialog */}
+        <Dialog open={showCreditTalkingPoints} onOpenChange={setShowCreditTalkingPoints}>
+          <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Collection Tips for {visit.retailerName}</DialogTitle>
+            </DialogHeader>
+            <CollectionTalkingPoints
+              outstandingAmount={pendingAmount}
+              creditLimit={creditLimitData?.creditLimit || pendingAmount * 2}
+              creditScore={creditLimitData?.score || 6}
+              avgDso={creditLimitData?.avgDso || 35}
+              targetDays={30}
+              loyaltyPoints={0}
+              onTimePaymentBonus={50}
+              retailerName={visit.retailerName}
+            />
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>;
 };

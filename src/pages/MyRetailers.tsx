@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { UserSelector } from "@/components/UserSelector";
 import { useSubordinates } from "@/hooks/useSubordinates";
 import { offlineStorage, STORES } from "@/lib/offlineStorage";
+import { buildRetailerIndex, filterRetailersIndexed, getUniqueValues, clearRetailerIndex } from "@/lib/retailerIndex";
 import { shouldSuppressError } from "@/utils/offlineErrorHandler";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Search, Pencil, Trash2, Calendar, Users, Check, ShoppingCart, Phone, CheckCircle2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Calendar, Users, Check, ShoppingCart, Phone, CheckCircle2, CreditCard } from "lucide-react";
+import { usePagination } from "@/hooks/usePagination";
+import { PaginationControls } from "@/components/ui/PaginationControls";
 import { VoiceSearchButton } from "@/components/VoiceSearchButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -22,6 +25,8 @@ import { MassEditBeatsModal } from "@/components/MassEditBeatsModal";
 import { RetailerDetailModal } from "@/components/RetailerDetailModal";
 import { BulkImportRetailersModal } from "@/components/BulkImportRetailersModal";
 import { RetailerAnalytics } from "@/components/RetailerAnalytics";
+import { CreditScoreDisplay } from "@/components/CreditScoreDisplay";
+import { VirtualizedRetailerTable } from "@/components/VirtualizedRetailerTable";
 import { moveToRecycleBin } from "@/utils/recycleBinUtils";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useDeleteConfirm } from "@/hooks/useDeleteConfirm";
@@ -77,6 +82,7 @@ export const MyRetailers = () => {
   const [loading, setLoading] = useState(false);
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [potentialFilter, setPotentialFilter] = useState<string | undefined>();
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [retailTypeFilter, setRetailTypeFilter] = useState<string | undefined>();
@@ -146,19 +152,26 @@ export const MyRetailers = () => {
   }, []);
 
 
-  const loadRetailers = async () => {
+  const loadRetailers = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     
     try {
       // ALWAYS load from cache FIRST for instant display (works offline and online)
       console.log('📦 Loading retailers from cache...');
+      console.time('[MyRetailers] Cache load');
       let cachedRetailers: any[] = await offlineStorage.getAll(STORES.RETAILERS);
       cachedRetailers = cachedRetailers.filter((r: any) => r.user_id === user.id);
+      console.timeEnd('[MyRetailers] Cache load');
       
       if (cachedRetailers.length > 0) {
         console.log('✅ Displaying cached retailers:', cachedRetailers.length);
-        setRetailers(cachedRetailers.sort((a, b) => a.name.localeCompare(b.name)));
+        const sorted = cachedRetailers.sort((a, b) => a.name.localeCompare(b.name));
+        setRetailers(sorted);
+        // Build index for fast filtering
+        console.time('[MyRetailers] Index build');
+        buildRetailerIndex(sorted);
+        console.timeEnd('[MyRetailers] Index build');
         setLoading(false); // Stop loading immediately once cache is displayed
       }
       
@@ -183,11 +196,11 @@ export const MyRetailers = () => {
         // Save new data first, then clear old data to prevent data loss
         if (data && data.length > 0) {
           console.log('🔄 Updating retailers cache with fresh data:', data.length);
-          // Save all new retailers first
-          for (const retailer of data) {
-            await offlineStorage.save(STORES.RETAILERS, retailer);
-          }
-          setRetailers(data);
+          await offlineStorage.mergeData(STORES.RETAILERS, data as any);
+          const sorted = [...data].sort((a, b) => a.name.localeCompare(b.name));
+          setRetailers(sorted);
+          // Rebuild index with fresh data
+          buildRetailerIndex(sorted);
         }
       } catch (networkError: any) {
         // Silent fail - cached data is already displayed
@@ -198,43 +211,83 @@ export const MyRetailers = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (user) loadRetailers();
-  }, [user]);
+    // Clear index on unmount
+    return () => {
+      clearRetailerIndex();
+    };
+  }, [user, loadRetailers]);
 
+  // Use index for fast filter dropdown values
   const categories = useMemo(() => {
-    return [...new Set(retailers.map(r => r.category).filter(Boolean))].sort();
+    const indexed = getUniqueValues('category');
+    if (indexed.length > 0) return indexed;
+    return [...new Set(retailers.map(r => r.category).filter(Boolean))].sort() as string[];
   }, [retailers]);
   
   const retailTypes = useMemo(() => {
-    return [...new Set(retailers.map(r => r.retail_type).filter(Boolean))].sort();
+    const indexed = getUniqueValues('retailType');
+    if (indexed.length > 0) return indexed;
+    return [...new Set(retailers.map(r => r.retail_type).filter(Boolean))].sort() as string[];
   }, [retailers]);
 
-  const filtered = useMemo(() => {
-    let result = retailers.filter(r => {
-      const searchLower = search.toLowerCase();
-      const matchesSearch = !search || 
-        r.name.toLowerCase().includes(searchLower) ||
-        (r.phone || '').toLowerCase().includes(searchLower) ||
-        r.address.toLowerCase().includes(searchLower) ||
-        (r.category || '').toLowerCase().includes(searchLower) ||
-        r.beat_id.toLowerCase().includes(searchLower);
-      
-      const matchesPotential = !potentialFilter || r.potential === potentialFilter;
-      const matchesCategory = !categoryFilter || (r.category || '').toLowerCase().includes(categoryFilter.toLowerCase());
-      const matchesRetailType = !retailTypeFilter || (r.retail_type || '').toLowerCase().includes(retailTypeFilter.toLowerCase());
-      const matchesBeat = !beatFilter || r.beat_id === beatFilter;
-      
-      return matchesSearch && matchesPotential && matchesCategory && matchesRetailType && matchesBeat;
+  // Use indexed filtering for 10x faster search with large datasets
+  const filtered = useMemo((): Retailer[] => {
+    // Try indexed search first (O(1) lookups)
+    const indexedResults = filterRetailersIndexed<Retailer>({
+      searchQuery: deferredSearch.trim() || undefined,
+      beatId: beatFilter || undefined,
+      category: categoryFilter || undefined,
+      potential: potentialFilter || undefined,
+      retailType: retailTypeFilter || undefined,
     });
     
-    return result.sort((a, b) => a.name.localeCompare(b.name));
-  }, [retailers, search, potentialFilter, categoryFilter, retailTypeFilter, beatFilter]);
+    // If index has results, use them (much faster)
+    if (indexedResults.length > 0 || (deferredSearch || beatFilter || categoryFilter || potentialFilter || retailTypeFilter)) {
+      return indexedResults.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    
+    // Fallback to full array if no filters applied and index is empty
+    return retailers;
+  }, [retailers, deferredSearch, potentialFilter, categoryFilter, retailTypeFilter, beatFilter]);
+
+  // Pagination - 10 items per page
+  const {
+    currentPage,
+    totalPages,
+    paginatedItems: paginatedRetailers,
+    goToPage,
+    nextPage,
+    prevPage,
+    startIndex,
+    endIndex,
+    totalItems,
+    hasNextPage,
+    hasPrevPage,
+  } = usePagination(filtered, { pageSize: 10 });
 
   const beats = useMemo(() => {
-    return [...new Set(retailers.map(r => r.beat_id))].filter(Boolean).sort();
+    // Create a map of beat_id -> beat_name from all retailers
+    const beatMap = new Map<string, string>();
+    retailers.forEach(r => {
+      if (r.beat_id) {
+        // Prioritize beat_name if available, otherwise use beat_id as fallback
+        const currentName = beatMap.get(r.beat_id);
+        const newName = r.beat_name || r.beat_id;
+        // Prefer actual names over beat_id-style strings
+        if (!currentName || (currentName.startsWith('beat_') && !newName.startsWith('beat_'))) {
+          beatMap.set(r.beat_id, newName);
+        }
+      }
+    });
+    
+    // Convert to array of objects sorted by display name
+    return Array.from(beatMap.entries())
+      .map(([beat_id, beat_name]) => ({ beat_id, beat_name }))
+      .sort((a, b) => a.beat_name.localeCompare(b.beat_name));
   }, [retailers]);
 
   const openEdit = (retailer: Retailer) => {
@@ -586,7 +639,7 @@ export const MyRetailers = () => {
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
                     {beats.map(b => (
-                      <SelectItem key={b} value={b}>{b}</SelectItem>
+                      <SelectItem key={b.beat_id} value={b.beat_id}>{b.beat_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -599,7 +652,7 @@ export const MyRetailers = () => {
           <CardContent className="pt-6">
             {/* Mobile Card View */}
             <div className="md:hidden space-y-3">
-              {filtered.map(r => (
+              {paginatedRetailers.map(r => (
                 <Card key={r.id} className="p-4">
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
@@ -637,7 +690,7 @@ export const MyRetailers = () => {
                         >
                           <Calendar className="h-4 w-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => openRetailerDetail(r)} className="h-8 w-8 p-0">
+                        <Button size="sm" variant="ghost" onClick={() => navigate('/add-retailer', { state: { retailer: r, returnTo: '/my-retailers' } })} className="h-8 w-8 p-0">
                           <Pencil className="h-4 w-4" />
                         </Button>
                       </div>
@@ -672,15 +725,33 @@ export const MyRetailers = () => {
                           <span>{r.category}</span>
                         </div>
                       )}
+                      {/* Credit Score Display */}
+                      <div className="pt-2 border-t">
+                        <CreditScoreDisplay retailerId={r.id} variant="compact" showCreditLimit />
+                      </div>
                     </div>
                   </div>
                 </Card>
               ))}
-              {filtered.length === 0 && (
+              {paginatedRetailers.length === 0 && (
                 <div className="text-center text-muted-foreground py-8">
                   {loading ? 'Loading...' : 'No retailers found'}
                 </div>
               )}
+              
+              {/* Mobile Pagination */}
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                totalItems={totalItems}
+                hasNextPage={hasNextPage}
+                hasPrevPage={hasPrevPage}
+                onNextPage={nextPage}
+                onPrevPage={prevPage}
+                onGoToPage={goToPage}
+              />
             </div>
 
             {/* Desktop Table View */}
@@ -702,7 +773,7 @@ export const MyRetailers = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(r => {
+                  {paginatedRetailers.map(r => {
                     const shortAddress = r.address.length > 30 ? r.address.substring(0, 30) + '...' : r.address;
                     const isAddressExpanded = expandedAddress === r.id;
                     
@@ -779,7 +850,7 @@ export const MyRetailers = () => {
                             >
                               <Calendar className="h-4 w-4" />
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => openRetailerDetail(r)} className="h-8 w-8 p-0">
+                            <Button size="sm" variant="ghost" onClick={() => navigate('/add-retailer', { state: { retailer: r, returnTo: '/my-retailers' } })} className="h-8 w-8 p-0">
                               <Pencil className="h-4 w-4" />
                             </Button>
                           </div>
@@ -787,13 +858,27 @@ export const MyRetailers = () => {
                       </TableRow>
                     );
                   })}
-                  {filtered.length === 0 && (
+                  {paginatedRetailers.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-muted-foreground">{loading ? 'Loading...' : 'No retailers found'}</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Desktop Pagination */}
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                totalItems={totalItems}
+                hasNextPage={hasNextPage}
+                hasPrevPage={hasPrevPage}
+                onNextPage={nextPage}
+                onPrevPage={prevPage}
+                onGoToPage={goToPage}
+              />
             </div>
           </CardContent>
         </Card>
