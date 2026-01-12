@@ -26,11 +26,18 @@ interface SecurityProfile {
   name: string;
 }
 
+interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 const CreateUserForm = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [securityProfiles, setSecurityProfiles] = useState<SecurityProfile[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [files, setFiles] = useState<FileUpload[]>([]);
   
   const [formData, setFormData] = useState({
@@ -54,15 +61,18 @@ const CreateUserForm = () => {
     address: '',
     education: '',
     emergency_contact_number: '',
-    band: ''
+    band: '',
+    tenant_id: '',
+    tenant_role: 'member'
   });
 
-  // Fetch managers and security profiles
+  // Fetch managers, security profiles, and tenants
   useEffect(() => {
     const fetchData = async () => {
-      const [managersRes, profilesRes] = await Promise.all([
+      const [managersRes, profilesRes, tenantsRes] = await Promise.all([
         supabase.from('profiles').select('id, username, full_name').order('full_name'),
-        supabase.from('security_profiles').select('id, name').order('name')
+        supabase.from('security_profiles').select('id, name').order('name'),
+        supabase.from('tenants').select('id, name, slug').eq('is_active', true).order('name')
       ]);
 
       if (!managersRes.error && managersRes.data) {
@@ -70,6 +80,9 @@ const CreateUserForm = () => {
       }
       if (!profilesRes.error && profilesRes.data) {
         setSecurityProfiles(profilesRes.data);
+      }
+      if (!tenantsRes.error && tenantsRes.data) {
+        setTenants(tenantsRes.data);
       }
     };
 
@@ -228,7 +241,9 @@ const CreateUserForm = () => {
         address: '',
         education: '',
         emergency_contact_number: '',
-        band: ''
+        band: '',
+        tenant_id: '',
+        tenant_role: 'member'
       });
       setFiles([]);
 
@@ -251,6 +266,39 @@ const CreateUserForm = () => {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Tenant Assignment */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg border">
+            <div className="space-y-2">
+              <Label htmlFor="tenant_id">Tenant (Organization) *</Label>
+              <Select value={formData.tenant_id} onValueChange={(value) => handleInputChange('tenant_id', value)} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select tenant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tenants.map((tenant) => (
+                    <SelectItem key={tenant.id} value={tenant.id}>
+                      {tenant.name} ({tenant.slug})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tenant_role">Tenant Role *</Label>
+              <Select value={formData.tenant_role} onValueChange={(value) => handleInputChange('tenant_role', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="owner">Owner</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           {/* Basic Information */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

@@ -95,7 +95,9 @@ serve(async (req) => {
       address,
       education,
       emergency_contact_number,
-      band
+      band,
+      tenant_id,
+      tenant_role = 'member'
     } = await req.json()
 
     console.log('Creating user with email:', email)
@@ -107,6 +109,38 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // Validate tenant_id is provided
+    if (!tenant_id) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required field: tenant_id is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Validate tenant exists and is active
+    const { data: tenantData, error: tenantError } = await supabaseAdmin
+      .from('tenants')
+      .select('id, name, is_active')
+      .eq('id', tenant_id)
+      .single()
+
+    if (tenantError || !tenantData) {
+      console.error('Tenant validation error:', tenantError)
+      return new Response(
+        JSON.stringify({ error: 'Invalid tenant selected' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!tenantData.is_active) {
+      return new Response(
+        JSON.stringify({ error: 'Selected tenant is not active' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    console.log('Tenant validated:', tenantData.name)
 
     // Create the auth user
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -207,6 +241,35 @@ serve(async (req) => {
 
     console.log('Employee record created successfully')
 
+    // Assign user to tenant
+    const validRoles = ['owner', 'admin', 'member']
+    const role = validRoles.includes(tenant_role) ? tenant_role : 'member'
+    
+    const { error: tenantUserError } = await supabaseAdmin
+      .from('tenant_users')
+      .insert({
+        tenant_id: tenant_id,
+        user_id: authUser.user.id,
+        role: role
+      })
+
+    if (tenantUserError) {
+      console.error('Tenant user assignment error:', tenantUserError)
+      // Clean up employee, profile and auth user if tenant assignment fails
+      await supabaseAdmin.from('employees').delete().eq('user_id', authUser.user.id)
+      await supabaseAdmin.from('profiles').delete().eq('id', authUser.user.id)
+      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to assign user to tenant', 
+          details: tenantUserError.message 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    console.log('User assigned to tenant successfully:', tenantData.name, 'with role:', role)
+
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -214,7 +277,12 @@ serve(async (req) => {
           id: authUser.user.id,
           email: authUser.user.email,
           username,
-          full_name
+          full_name,
+          tenant: {
+            id: tenant_id,
+            name: tenantData.name,
+            role: role
+          }
         }
       }),
       { 
