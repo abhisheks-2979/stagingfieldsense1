@@ -84,7 +84,12 @@ export function useRecommendations(type?: string, entityId?: string) {
         body: { recommendationType, entityId },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Generate recommendation error:', error);
+        // Try to parse error context for better message
+        const errorMessage = error.context?.error || error.message || 'Failed to generate recommendation';
+        throw new Error(errorMessage);
+      }
 
       toast({
         title: 'Recommendation Generated',
@@ -98,8 +103,8 @@ export function useRecommendations(type?: string, entityId?: string) {
       // Only show error if not a network/offline error
       if (!shouldSuppressError(error)) {
         toast({
-          title: 'Error',
-          description: error.message || 'Failed to generate recommendation',
+          title: 'Failed to generate insights',
+          description: error.message || 'Please try again later',
           variant: 'destructive',
         });
       }
