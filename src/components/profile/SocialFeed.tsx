@@ -158,7 +158,12 @@ export function SocialFeed() {
   };
 
   const fetchPosts = async () => {
-    if (!tenant?.id) return;
+    if (!tenant?.id) {
+      console.log('No tenant ID available, skipping fetch');
+      return;
+    }
+
+    console.log('Fetching posts for tenant:', tenant.id);
 
     // Get all user IDs belonging to the same tenant
     const { data: tenantUsers, error: tenantUsersError } = await supabase
@@ -166,12 +171,19 @@ export function SocialFeed() {
       .select('user_id')
       .eq('tenant_id', tenant.id);
 
-    if (tenantUsersError || !tenantUsers) {
+    if (tenantUsersError) {
       console.error('Error fetching tenant users:', tenantUsersError);
       return;
     }
 
+    if (!tenantUsers || tenantUsers.length === 0) {
+      console.log('No tenant users found');
+      setPosts([]);
+      return;
+    }
+
     const tenantUserIds = tenantUsers.map(tu => tu.user_id);
+    console.log('Tenant user IDs:', tenantUserIds);
 
     const { data, error } = await supabase
       .from("social_posts")
@@ -184,6 +196,8 @@ export function SocialFeed() {
       `)
       .in('user_id', tenantUserIds)
       .order("created_at", { ascending: false });
+
+    console.log('Posts fetched:', data?.length, 'Error:', error);
 
     if (!error && data) {
       const formattedPosts: Post[] = await Promise.all(
