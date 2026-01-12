@@ -140,8 +140,16 @@ export function InstagramSocialFeed() {
   const fetchPosts = async () => {
     if (!user) return;
 
+    // Fetch fresh following list to avoid stale state issues
+    const { data: freshFollowing } = await supabase
+      .from("employee_connections")
+      .select("following_id")
+      .eq("follower_id", user.id);
+    
+    const freshFollowingIds = freshFollowing?.map((d: any) => d.following_id) || [];
+    
     // Get posts from self and followed users
-    const viewableUserIds = [user.id, ...followingIds];
+    const viewableUserIds = [user.id, ...freshFollowingIds];
     
     const { data, error } = await supabase
       .from("social_posts")
