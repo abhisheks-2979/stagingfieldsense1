@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Heart, MessageCircle, Send, Image as ImageIcon, X, Bot, RefreshCw, Sparkles, Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useTenant } from "@/hooks/useTenant";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { RealtimeChannel } from "@supabase/supabase-js";
@@ -39,6 +40,7 @@ interface Comment {
 
 export function SocialFeed() {
   const { user, userProfile } = useAuth();
+  const { tenant } = useTenant();
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPost, setNewPost] = useState("");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -51,9 +53,11 @@ export function SocialFeed() {
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
-    fetchPosts();
+    if (tenant?.id) {
+      fetchPosts();
+    }
     fetchFollowingList();
-  }, []);
+  }, [tenant?.id]);
 
   useEffect(() => {
     if (!user || followingIds.length === 0) return;
@@ -154,6 +158,21 @@ export function SocialFeed() {
   };
 
   const fetchPosts = async () => {
+    if (!tenant?.id) return;
+
+    // Get all user IDs belonging to the same tenant
+    const { data: tenantUsers, error: tenantUsersError } = await supabase
+      .from('tenant_users')
+      .select('user_id')
+      .eq('tenant_id', tenant.id);
+
+    if (tenantUsersError || !tenantUsers) {
+      console.error('Error fetching tenant users:', tenantUsersError);
+      return;
+    }
+
+    const tenantUserIds = tenantUsers.map(tu => tu.user_id);
+
     const { data, error } = await supabase
       .from("social_posts")
       .select(`
@@ -163,6 +182,7 @@ export function SocialFeed() {
         social_comments(count),
         push_content_templates(name)
       `)
+      .in('user_id', tenantUserIds)
       .order("created_at", { ascending: false });
 
     if (!error && data) {
