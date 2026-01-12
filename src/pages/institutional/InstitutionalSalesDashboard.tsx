@@ -20,16 +20,16 @@ interface DashboardMetrics {
 }
 
 const quickNavItems = [
-  { icon: UserPlus, label: "Leads", href: "/institutional-sales/leads", color: "from-blue-500 to-blue-600" },
-  { icon: Building2, label: "Accounts", href: "/institutional-sales/accounts", color: "from-emerald-500 to-emerald-600" },
-  { icon: Users, label: "Contacts", href: "/institutional-sales/contacts", color: "from-purple-500 to-purple-600" },
-  { icon: Target, label: "Opportunities", href: "/institutional-sales/opportunities", color: "from-orange-500 to-orange-600" },
-  { icon: FileText, label: "Quotes", href: "/institutional-sales/quotes", color: "from-pink-500 to-pink-600" },
-  { icon: Package, label: "Order Commitments", href: "/institutional-sales/order-commitments", color: "from-cyan-500 to-cyan-600" },
-  { icon: Receipt, label: "Invoices", href: "/institutional-sales/invoices", color: "from-amber-500 to-amber-600" },
-  { icon: CreditCard, label: "Collections", href: "/institutional-sales/collections", color: "from-indigo-500 to-indigo-600" },
-  { icon: Briefcase, label: "Products", href: "/institutional-sales/products", color: "from-teal-500 to-teal-600" },
-  { icon: DollarSign, label: "Price Books", href: "/institutional-sales/price-books", color: "from-rose-500 to-rose-600" },
+  { icon: UserPlus, label: "Leads", href: "/institutional/leads", color: "from-blue-500 to-blue-600" },
+  { icon: Building2, label: "Accounts", href: "/institutional/accounts", color: "from-emerald-500 to-emerald-600" },
+  { icon: Users, label: "Contacts", href: "/institutional/contacts", color: "from-purple-500 to-purple-600" },
+  { icon: Target, label: "Opportunities", href: "/institutional/opportunities", color: "from-orange-500 to-orange-600" },
+  { icon: FileText, label: "Quotes", href: "/institutional/quotes", color: "from-pink-500 to-pink-600" },
+  { icon: Package, label: "Order Commitments", href: "/institutional/order-commitments", color: "from-cyan-500 to-cyan-600" },
+  { icon: Receipt, label: "Invoices", href: "/institutional/invoices", color: "from-amber-500 to-amber-600" },
+  { icon: CreditCard, label: "Collections", href: "/institutional/collections", color: "from-indigo-500 to-indigo-600" },
+  { icon: Briefcase, label: "Products", href: "/institutional/products", color: "from-teal-500 to-teal-600" },
+  { icon: DollarSign, label: "Price Books", href: "/institutional/price-books", color: "from-rose-500 to-rose-600" },
 ];
 
 export default function InstitutionalSalesDashboard() {
@@ -211,7 +211,7 @@ export default function InstitutionalSalesDashboard() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-medium">Recent Leads</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/institutional-sales/leads')}>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/institutional/leads')}>
                   View All <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </div>
@@ -226,7 +226,7 @@ export default function InstitutionalSalesDashboard() {
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-medium">Open Opportunities</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/institutional-sales/opportunities')}>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/institutional/opportunities')}>
                   View All <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </div>
