@@ -1,16 +1,16 @@
-import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { 
-  User, Mail, Phone, MapPin, Building2, Calendar, Pencil, 
+  User, Mail, Phone, MapPin, Pencil, 
   Linkedin, Twitter, Instagram, Facebook, Globe, Briefcase, 
-  GraduationCap, Heart, Target, ClipboardCheck, Users, Shield
+  Calendar, Users, Shield, Languages
 } from "lucide-react";
 import { format } from "date-fns";
 import { ProfilePictureUpload } from "@/components/ProfilePictureUpload";
 import { useAuth } from "@/hooks/useAuth";
+import { useTranslation } from "react-i18next";
 
 interface AboutViewModeProps {
   userProfile: any;
@@ -20,6 +20,15 @@ interface AboutViewModeProps {
   onEdit: () => void;
 }
 
+const languageNames: Record<string, string> = {
+  en: 'English',
+  hi: 'हिंदी (Hindi)',
+  kn: 'ಕನ್ನಡ (Kannada)',
+  ta: 'தமிழ் (Tamil)',
+  te: 'తెలుగు (Telugu)',
+  gu: 'ગુજરાતી (Gujarati)'
+};
+
 export function AboutViewMode({ 
   userProfile, 
   formData, 
@@ -28,6 +37,7 @@ export function AboutViewMode({
   onEdit 
 }: AboutViewModeProps) {
   const { user } = useAuth();
+  const { i18n } = useTranslation();
 
   const getManagerName = () => {
     const manager = managers.find(m => m.id === formData.manager_id);
@@ -40,9 +50,10 @@ export function AboutViewMode({
   };
 
   const handlePhotoUpdate = (newUrl: string) => {
-    // Photo update triggers a refetch through query invalidation in ProfilePictureUpload
     window.location.reload();
   };
+
+  const currentLanguage = languageNames[i18n.language] || languageNames['en'];
 
   return (
     <Card>
@@ -84,6 +95,20 @@ export function AboutViewMode({
             <InfoItem icon={<User className="h-4 w-4" />} label="Username" value={formData.username || "-"} />
             <InfoItem icon={<Phone className="h-4 w-4" />} label="Phone" value={formData.phone_number || "-"} />
             <InfoItem icon={<Mail className="h-4 w-4" />} label="Recovery Email" value={formData.recovery_email || "-"} />
+            <InfoItem icon={<Phone className="h-4 w-4" />} label="Emergency Contact" value={formData.emergency_contact_number || "-"} />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Preferences Section */}
+        <div>
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Languages className="h-4 w-4" />
+            Preferences
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <InfoItem icon={<Languages className="h-4 w-4" />} label="Language Preference" value={currentLanguage} />
           </div>
         </div>
 
