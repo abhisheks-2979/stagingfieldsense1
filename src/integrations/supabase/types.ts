@@ -7863,6 +7863,165 @@ export type Database = {
           },
         ]
       }
+      scheme_applicability: {
+        Row: {
+          applicability_type: string
+          created_at: string
+          entity_id: string | null
+          entity_name: string | null
+          id: string
+          include_children: boolean | null
+          scheme_id: string
+          updated_at: string
+        }
+        Insert: {
+          applicability_type: string
+          created_at?: string
+          entity_id?: string | null
+          entity_name?: string | null
+          id?: string
+          include_children?: boolean | null
+          scheme_id: string
+          updated_at?: string
+        }
+        Update: {
+          applicability_type?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_name?: string | null
+          id?: string
+          include_children?: boolean | null
+          scheme_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheme_applicability_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scheme_policy_config: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          policy_key: string
+          policy_type: string
+          policy_value: Json
+          priority: number | null
+          scheme_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          policy_key: string
+          policy_type: string
+          policy_value?: Json
+          priority?: number | null
+          scheme_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          policy_key?: string
+          policy_type?: string
+          policy_value?: Json
+          priority?: number | null
+          scheme_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheme_policy_config_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      schemes: {
+        Row: {
+          budget_amount: number | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          discount_percent: number | null
+          end_date: string
+          flat_discount: number | null
+          id: string
+          is_active: boolean | null
+          max_discount_value: number | null
+          min_order_value: number | null
+          scheme_code: string | null
+          scheme_name: string
+          scheme_type: string
+          start_date: string
+          tenant_id: string | null
+          terms_conditions: string | null
+          updated_at: string
+          utilized_amount: number | null
+        }
+        Insert: {
+          budget_amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          discount_percent?: number | null
+          end_date: string
+          flat_discount?: number | null
+          id?: string
+          is_active?: boolean | null
+          max_discount_value?: number | null
+          min_order_value?: number | null
+          scheme_code?: string | null
+          scheme_name: string
+          scheme_type: string
+          start_date: string
+          tenant_id?: string | null
+          terms_conditions?: string | null
+          updated_at?: string
+          utilized_amount?: number | null
+        }
+        Update: {
+          budget_amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          discount_percent?: number | null
+          end_date?: string
+          flat_discount?: number | null
+          id?: string
+          is_active?: boolean | null
+          max_discount_value?: number | null
+          min_order_value?: number | null
+          scheme_code?: string | null
+          scheme_name?: string
+          scheme_type?: string
+          start_date?: string
+          tenant_id?: string | null
+          terms_conditions?: string | null
+          updated_at?: string
+          utilized_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schemes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       security_profiles: {
         Row: {
           created_at: string | null
@@ -8730,6 +8889,124 @@ export type Database = {
           },
         ]
       }
+      user_business_plan_distributors: {
+        Row: {
+          business_plan_id: string
+          created_at: string
+          distributor_id: string
+          distributor_name: string
+          growth_percent: number | null
+          id: string
+          last_year_revenue: number | null
+          notes: string | null
+          quantity_target: number | null
+          revenue_target: number | null
+          updated_at: string
+        }
+        Insert: {
+          business_plan_id: string
+          created_at?: string
+          distributor_id: string
+          distributor_name: string
+          growth_percent?: number | null
+          id?: string
+          last_year_revenue?: number | null
+          notes?: string | null
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Update: {
+          business_plan_id?: string
+          created_at?: string
+          distributor_id?: string
+          distributor_name?: string
+          growth_percent?: number | null
+          id?: string
+          last_year_revenue?: number | null
+          notes?: string | null
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_business_plan_distributors_business_plan_id_fkey"
+            columns: ["business_plan_id"]
+            isOneToOne: false
+            referencedRelation: "user_business_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_business_plan_distributors_distributor_id_fkey"
+            columns: ["distributor_id"]
+            isOneToOne: false
+            referencedRelation: "distributors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_business_plan_month_products: {
+        Row: {
+          business_plan_id: string
+          created_at: string
+          id: string
+          month_id: string | null
+          month_number: number
+          product_id: string
+          product_name: string
+          quantity_target: number | null
+          revenue_target: number | null
+          updated_at: string
+        }
+        Insert: {
+          business_plan_id: string
+          created_at?: string
+          id?: string
+          month_id?: string | null
+          month_number: number
+          product_id: string
+          product_name: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Update: {
+          business_plan_id?: string
+          created_at?: string
+          id?: string
+          month_id?: string | null
+          month_number?: number
+          product_id?: string
+          product_name?: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_business_plan_month_products_business_plan_id_fkey"
+            columns: ["business_plan_id"]
+            isOneToOne: false
+            referencedRelation: "user_business_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_business_plan_month_products_month_id_fkey"
+            columns: ["month_id"]
+            isOneToOne: false
+            referencedRelation: "user_business_plan_months"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_business_plan_month_products_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_business_plan_months: {
         Row: {
           business_plan_id: string
@@ -8882,6 +9159,76 @@ export type Database = {
           year?: number | null
         }
         Relationships: []
+      }
+      user_business_plan_territory_beats: {
+        Row: {
+          beat_id: string | null
+          beat_name: string | null
+          business_plan_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          quantity_target: number | null
+          retailer_count_target: number | null
+          revenue_target: number | null
+          territory_id: string | null
+          territory_name: string | null
+          updated_at: string
+          visit_target: number | null
+        }
+        Insert: {
+          beat_id?: string | null
+          beat_name?: string | null
+          business_plan_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          quantity_target?: number | null
+          retailer_count_target?: number | null
+          revenue_target?: number | null
+          territory_id?: string | null
+          territory_name?: string | null
+          updated_at?: string
+          visit_target?: number | null
+        }
+        Update: {
+          beat_id?: string | null
+          beat_name?: string | null
+          business_plan_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          quantity_target?: number | null
+          retailer_count_target?: number | null
+          revenue_target?: number | null
+          territory_id?: string | null
+          territory_name?: string | null
+          updated_at?: string
+          visit_target?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_business_plan_territory_beats_beat_id_fkey"
+            columns: ["beat_id"]
+            isOneToOne: false
+            referencedRelation: "beats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_business_plan_territory_beats_business_plan_id_fkey"
+            columns: ["business_plan_id"]
+            isOneToOne: false
+            referencedRelation: "user_business_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_business_plan_territory_beats_territory_id_fkey"
+            columns: ["territory_id"]
+            isOneToOne: false
+            referencedRelation: "territories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_business_plans: {
         Row: {
