@@ -8682,7 +8682,15 @@ export type Database = {
           id?: string
           post_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "social_post_attachments_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "social_posts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       social_posts: {
         Row: {
