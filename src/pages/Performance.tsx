@@ -25,14 +25,14 @@ const Performance = () => {
     return null;
   }
 
-  // If gamification is active, show leaderboard/gamification view
-  if (isGamificationActive) {
-    return <Leaderboard />;
-  }
-
-  // If target_actual is active, show target vs actual performance dashboard
+  // If target_actual is active, show target vs actual performance dashboard (prioritized)
   if (isTargetActualActive) {
     return <PerformanceDashboard />;
+  }
+
+  // If only gamification is active, show leaderboard/gamification view
+  if (isGamificationActive) {
+    return <Leaderboard />;
   }
 
   // Fallback - should not reach here
