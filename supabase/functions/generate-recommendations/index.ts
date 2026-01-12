@@ -13,8 +13,8 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error('Missing authorization header');
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.error('Missing or invalid authorization header');
       return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -23,12 +23,12 @@ serve(async (req) => {
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: authHeader } } }
     );
 
-    // Verify the JWT token to get user info
-    const jwt = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(jwt);
+    // Verify the JWT token using getUser
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     
     if (userError || !user) {
       console.error('Auth error:', userError);
@@ -38,7 +38,8 @@ serve(async (req) => {
       });
     }
     
-    console.log('Authenticated user:', user.id);
+    const userId = user.id;
+    console.log('Authenticated user:', userId);
 
     const { recommendationType, entityId } = await req.json();
 
@@ -46,11 +47,11 @@ serve(async (req) => {
     let contextData: any = {};
     
     if (recommendationType === 'beat_visit') {
-      contextData = await fetchBeatVisitData(supabaseClient, user.id);
+      contextData = await fetchBeatVisitData(supabaseClient, userId);
     } else if (recommendationType === 'retailer_priority') {
-      contextData = await fetchRetailerPriorityData(supabaseClient, user.id, entityId);
+      contextData = await fetchRetailerPriorityData(supabaseClient, userId, entityId);
     } else if (recommendationType === 'discussion_points') {
-      contextData = await fetchDiscussionPointsData(supabaseClient, user.id, entityId);
+      contextData = await fetchDiscussionPointsData(supabaseClient, userId, entityId);
     } else if (recommendationType === 'beat_performance') {
       contextData = await fetchBeatPerformanceData(supabaseClient, entityId);
     } else if (recommendationType === 'optimal_day') {
@@ -62,7 +63,7 @@ serve(async (req) => {
 
     // Log what we're about to insert for debugging
     const insertData = {
-      user_id: user.id,
+      user_id: userId,
       recommendation_type: recommendationType,
       entity_id: entityId || null,
       entity_name: contextData.entityName || null,

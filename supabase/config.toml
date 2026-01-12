@@ -7,7 +7,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.generate-recommendations]
-verify_jwt = true
+verify_jwt = false
 
 [functions.generate-target-advice]
 verify_jwt = false
@@ -16,7 +16,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.generate-visit-ai-insights]
-verify_jwt = true
+verify_jwt = false
 
 [functions.validate-invitation]
 verify_jwt = true
