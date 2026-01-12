@@ -9638,6 +9638,7 @@ export type Database = {
           tenant_id: string | null
           updated_at: string
           user_id: string
+          year: number | null
           year_end: number
           year_start: number
         }
@@ -9653,6 +9654,7 @@ export type Database = {
           tenant_id?: string | null
           updated_at?: string
           user_id: string
+          year?: number | null
           year_end: number
           year_start: number
         }
@@ -9668,6 +9670,7 @@ export type Database = {
           tenant_id?: string | null
           updated_at?: string
           user_id?: string
+          year?: number | null
           year_end?: number
           year_start?: number
         }
