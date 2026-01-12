@@ -90,10 +90,10 @@ export function InstagramSocialFeed() {
   }, [user]);
 
   useEffect(() => {
-    if (tenant?.id) {
+    if (user && tenant?.id) {
       fetchPosts();
     }
-  }, [tenant?.id, followingIds]);
+  }, [user, tenant?.id]);
 
   const fetchFollowingList = async () => {
     if (!user) return;
