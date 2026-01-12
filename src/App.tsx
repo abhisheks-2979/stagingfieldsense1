@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { TenantProvider } from "@/hooks/useTenant";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { RoleBasedAuthPage } from "@/components/auth/RoleBasedAuthPage";
 import { useMasterDataCache } from "@/hooks/useMasterDataCache";
@@ -223,12 +224,14 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <NetworkProvider>
           <AuthProvider>
-            <TooltipProvider>
-              <BrowserRouter>
-                <SlowConnectionBanner />
-                <AppContent hasError={hasError} />
-              </BrowserRouter>
-            </TooltipProvider>
+            <TenantProvider>
+              <TooltipProvider>
+                <BrowserRouter>
+                  <SlowConnectionBanner />
+                  <AppContent hasError={hasError} />
+                </BrowserRouter>
+              </TooltipProvider>
+            </TenantProvider>
           </AuthProvider>
         </NetworkProvider>
       </QueryClientProvider>
