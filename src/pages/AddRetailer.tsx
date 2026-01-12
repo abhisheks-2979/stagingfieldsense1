@@ -798,8 +798,6 @@ export const AddRetailer = () => {
       longitude: retailerData.longitude ? parseFloat(retailerData.longitude) : null,
       manual_credit_score: retailerData.manual_credit_score ? parseFloat(retailerData.manual_credit_score) : null,
       state: retailerData.state || null,
-      owner_id: selectedOwnerId || null,
-      owner_name: selectedOwnerName || null,
     };
 
     if (isEditMode && editingRetailer?.id) {
