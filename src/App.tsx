@@ -190,15 +190,20 @@ const MasterDataCacheInitializer = () => {
 
 const App = () => {
   const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log("🚀 App component mounted");
+    
     const errorHandler = (event: ErrorEvent) => {
       console.error("Global error:", event.error ?? event.message);
+      setErrorMessage(event.message || "Unknown error occurred");
       setHasError(true);
     };
 
     const rejectionHandler = (event: PromiseRejectionEvent) => {
       console.error("Unhandled rejection:", event.reason);
+      setErrorMessage(event.reason?.message || "Promise rejection");
       setHasError(true);
     };
 

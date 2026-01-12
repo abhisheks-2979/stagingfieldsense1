@@ -355,10 +355,10 @@ export const SchemeMaster = () => {
         schemeId = data?.id;
       }
 
-      // Save applicability rules
+      // Save applicability rules (using any to bypass missing table type)
       if (schemeId && schemeForm.applicability_type === 'targeted' && applicabilityRules.length > 0) {
         // Delete existing rules
-        await supabase.from('scheme_applicability').delete().eq('scheme_id', schemeId);
+        await (supabase as any).from('scheme_applicability').delete().eq('scheme_id', schemeId);
         
         // Insert new rules
         const rulesToInsert = applicabilityRules.map(rule => ({
@@ -369,10 +369,10 @@ export const SchemeMaster = () => {
           include_children: rule.includeChildren
         }));
         
-        await supabase.from('scheme_applicability').insert(rulesToInsert);
+        await (supabase as any).from('scheme_applicability').insert(rulesToInsert);
       } else if (schemeId && schemeForm.applicability_type === 'global') {
         // Clear rules if global
-        await supabase.from('scheme_applicability').delete().eq('scheme_id', schemeId);
+        await (supabase as any).from('scheme_applicability').delete().eq('scheme_id', schemeId);
       }
 
       toast.success(schemeForm.id ? 'Scheme updated successfully' : 'Scheme created successfully');
@@ -509,13 +509,13 @@ export const SchemeMaster = () => {
 
   const loadApplicabilityRules = async (schemeId: string) => {
     try {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from('scheme_applicability')
         .select('*')
         .eq('scheme_id', schemeId);
       
       if (data) {
-        setApplicabilityRules(data.map(r => ({
+        setApplicabilityRules(data.map((r: any) => ({
           level: r.applicability_level as ApplicabilityRule['level'],
           entityId: r.entity_id || '',
           entityName: r.entity_name || '',

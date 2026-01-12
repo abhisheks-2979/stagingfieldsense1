@@ -47,7 +47,7 @@ export const SchemePolicyConfig = ({ trigger, inline = false }: SchemePolicyConf
   const fetchPolicies = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('scheme_policy_config')
         .select('policy_name, policy_value')
         .eq('is_active', true);
@@ -55,7 +55,7 @@ export const SchemePolicyConfig = ({ trigger, inline = false }: SchemePolicyConf
       if (error) throw error;
 
       if (data) {
-        const policyMap = data.reduce((acc, policy) => {
+        const policyMap = data.reduce((acc: Record<string, any>, policy: any) => {
           acc[policy.policy_name] = policy.policy_value;
           return acc;
         }, {} as Record<string, any>);
@@ -80,16 +80,16 @@ export const SchemePolicyConfig = ({ trigger, inline = false }: SchemePolicyConf
     try {
       setSaving(true);
 
-      // Update each policy
+      // Update each policy (using any to bypass missing table type)
       const updates = Object.entries(policies).map(([name, value]) =>
-        supabase
+        (supabase as any)
           .from('scheme_policy_config')
           .update({ policy_value: value, updated_at: new Date().toISOString() })
           .eq('policy_name', name)
       );
 
       const results = await Promise.all(updates);
-      const hasError = results.some(r => r.error);
+      const hasError = results.some((r: any) => r.error);
 
       if (hasError) {
         throw new Error('Failed to update some policies');
