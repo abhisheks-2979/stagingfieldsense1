@@ -10,10 +10,12 @@ export const useActivePerformanceModule = () => {
       const { data, error } = await supabase
         .from('performance_module_config')
         .select('*')
-        .single();
+        .limit(1)
+        .maybeSingle();
       
       if (error) throw error;
-      return data;
+      // Return default config if none exists
+      return data || { active_module: 'both' };
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes - prevents repeated fetches
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
