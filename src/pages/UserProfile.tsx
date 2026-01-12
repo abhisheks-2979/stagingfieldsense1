@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, User, Trophy, TrendingUp, Users, Bell } from 'lucide-react';
-import { Navigate } from 'react-router-dom';
-import { BadgesDisplay } from '@/components/BadgesDisplay';
-import { PointsDetailsModal } from '@/components/PointsDetailsModal';
-import { PerformanceDashboard } from '@/components/profile/PerformanceDashboard';
+import { User, Trophy, Users } from 'lucide-react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { InstagramSocialFeed } from '@/components/profile/InstagramSocialFeed';
-import { PushContentConfigurator } from '@/components/profile/PushContentConfigurator';
 import { ProfileAttachments } from '@/components/profile/ProfileAttachments';
 import { Layout } from '@/components/Layout';
 import { AboutViewMode } from '@/components/profile/about/AboutViewMode';
@@ -33,10 +27,10 @@ interface Territory {
 const UserProfile = () => {
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [territories, setTerritories] = useState<Territory[]>([]);
-  const [pointsModalOpen, setPointsModalOpen] = useState(false);
   const [totalPoints, setTotalPoints] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   
@@ -210,35 +204,35 @@ const UserProfile = () => {
     <Layout>
       <div className="p-4">
         <div className="max-w-6xl mx-auto space-y-6">
-          <div className="flex items-center gap-4">
-            <User className="w-8 h-8 text-primary" />
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
-              <p className="text-muted-foreground">Manage your information and track performance</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <User className="w-8 h-8 text-primary" />
+              <div>
+                <h1 className="text-3xl font-bold text-foreground">My Profile</h1>
+                <p className="text-muted-foreground">Manage your information and track performance</p>
+              </div>
             </div>
+            
+            {/* Points Badge - links to Leaderboard */}
+            <button
+              onClick={() => navigate('/leaderboard')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors"
+            >
+              <Trophy className="h-4 w-4 text-amber-500" />
+              <span className="text-amber-600 font-semibold">{totalPoints}</span>
+              <span className="text-amber-500 text-sm">pts</span>
+            </button>
           </div>
 
           <Tabs defaultValue="about" className="space-y-4">
-            <TabsList className="w-full flex flex-wrap h-auto gap-1 p-1">
-              <TabsTrigger value="about" className="flex-1 min-w-[80px] text-xs sm:text-sm py-2">
-                <User className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">About</span>
+            <TabsList className="w-full grid grid-cols-2 h-auto p-1">
+              <TabsTrigger value="about" className="py-2.5 text-sm">
+                <User className="h-4 w-4 mr-2" />
+                About
               </TabsTrigger>
-              <TabsTrigger value="performance" className="flex-1 min-w-[80px] text-xs sm:text-sm py-2">
-                <TrendingUp className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Performance</span>
-              </TabsTrigger>
-              <TabsTrigger value="gamification" className="flex-1 min-w-[80px] text-xs sm:text-sm py-2">
-                <Trophy className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Points</span>
-              </TabsTrigger>
-              <TabsTrigger value="social" className="flex-1 min-w-[80px] text-xs sm:text-sm py-2">
-                <Users className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Social</span>
-              </TabsTrigger>
-              <TabsTrigger value="push-content" className="flex-1 min-w-[80px] text-xs sm:text-sm py-2">
-                <Bell className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Push</span>
+              <TabsTrigger value="social" className="py-2.5 text-sm">
+                <Users className="h-4 w-4 mr-2" />
+                Social
               </TabsTrigger>
             </TabsList>
 
@@ -277,53 +271,11 @@ const UserProfile = () => {
               <ProfileAttachments />
             </TabsContent>
 
-            {/* Performance Tab */}
-            <TabsContent value="performance">
-              <PerformanceDashboard userId={user.id} />
-            </TabsContent>
-
-            {/* Gamification Tab */}
-            <TabsContent value="gamification" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Trophy className="h-5 w-5" />
-                      Gamification Points
-                    </span>
-                    <Button onClick={() => setPointsModalOpen(true)} variant="outline" size="sm">
-                      View Details
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-primary">{totalPoints}</div>
-                    <p className="text-muted-foreground mt-2">Total Points Earned</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <BadgesDisplay />
-            </TabsContent>
-
-            {/* Social/Collaboration Tab */}
+            {/* Social Tab */}
             <TabsContent value="social">
               <InstagramSocialFeed />
             </TabsContent>
-
-            {/* Push Content Tab */}
-            <TabsContent value="push-content">
-              <PushContentConfigurator />
-            </TabsContent>
           </Tabs>
-          
-          <PointsDetailsModal
-            open={pointsModalOpen}
-            onOpenChange={setPointsModalOpen}
-            userId={user.id}
-            timeFilter="month"
-          />
         </div>
       </div>
     </Layout>
