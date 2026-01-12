@@ -5728,6 +5728,56 @@ export type Database = {
           },
         ]
       }
+      leave_policy: {
+        Row: {
+          accrual_type: string
+          applicable_from: string | null
+          carry_forward_allowed: boolean | null
+          created_at: string
+          id: string
+          is_active: boolean | null
+          leave_type_id: string
+          max_carry_forward: number | null
+          monthly_accrual: number | null
+          updated_at: string
+          yearly_entitlement: number
+        }
+        Insert: {
+          accrual_type?: string
+          applicable_from?: string | null
+          carry_forward_allowed?: boolean | null
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          leave_type_id: string
+          max_carry_forward?: number | null
+          monthly_accrual?: number | null
+          updated_at?: string
+          yearly_entitlement?: number
+        }
+        Update: {
+          accrual_type?: string
+          applicable_from?: string | null
+          carry_forward_allowed?: boolean | null
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          leave_type_id?: string
+          max_carry_forward?: number | null
+          monthly_accrual?: number | null
+          updated_at?: string
+          yearly_entitlement?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_policy_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: true
+            referencedRelation: "leave_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_types: {
         Row: {
           created_at: string
@@ -9726,6 +9776,47 @@ export type Database = {
         }
         Relationships: []
       }
+      user_leave_policy: {
+        Row: {
+          created_at: string
+          custom_entitlement: number | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          leave_type_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          custom_entitlement?: number | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          leave_type_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          custom_entitlement?: number | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          leave_type_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_leave_policy_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "leave_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_performance_scores: {
         Row: {
           calculated_at: string | null
@@ -10941,6 +11032,33 @@ export type Database = {
           },
         ]
       }
+      week_off_config: {
+        Row: {
+          alternate_pattern: string | null
+          created_at: string
+          day_of_week: number
+          id: string
+          is_off: boolean
+          updated_at: string
+        }
+        Insert: {
+          alternate_pattern?: string | null
+          created_at?: string
+          day_of_week: number
+          id?: string
+          is_off?: boolean
+          updated_at?: string
+        }
+        Update: {
+          alternate_pattern?: string | null
+          created_at?: string
+          day_of_week?: number
+          id?: string
+          is_off?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       whatsapp_config: {
         Row: {
           business_name: string | null
@@ -10968,6 +11086,42 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      working_days_config: {
+        Row: {
+          created_at: string
+          holidays: number | null
+          id: string
+          month: number
+          total_days: number
+          updated_at: string
+          week_offs: number
+          working_days: number
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          holidays?: number | null
+          id?: string
+          month: number
+          total_days: number
+          updated_at?: string
+          week_offs?: number
+          working_days: number
+          year: number
+        }
+        Update: {
+          created_at?: string
+          holidays?: number | null
+          id?: string
+          month?: number
+          total_days?: number
+          updated_at?: string
+          week_offs?: number
+          working_days?: number
+          year?: number
         }
         Relationships: []
       }
@@ -11248,6 +11402,7 @@ export type Database = {
       }
       hash_hint_answer: { Args: { answer: string }; Returns: string }
       is_account_locked: { Args: { user_email: string }; Returns: boolean }
+      is_admin_or_manager: { Args: never; Returns: boolean }
       is_manager: { Args: { user_id_param: string }; Returns: boolean }
       is_tenant_admin: { Args: { _user_id?: string }; Returns: boolean }
       is_tenant_admin_or_owner: {
