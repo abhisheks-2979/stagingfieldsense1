@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.generate-recommendations]
 verify_jwt = true
 
+[functions.generate-target-advice]
+verify_jwt = true
+
 [functions.generate-competition-ai-summary]
 verify_jwt = true
 
