@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useTenant } from "@/hooks/useTenant";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -68,6 +69,7 @@ const EMOJI_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "👏",
 
 export function InstagramSocialFeed() {
   const { user, userProfile } = useAuth();
+  const { tenant } = useTenant();
   const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
@@ -88,10 +90,10 @@ export function InstagramSocialFeed() {
   }, [user]);
 
   useEffect(() => {
-    if (followingIds.length >= 0) {
+    if (tenant?.id) {
       fetchPosts();
     }
-  }, [followingIds]);
+  }, [tenant?.id, followingIds]);
 
   const fetchFollowingList = async () => {
     if (!user) return;
@@ -138,18 +140,21 @@ export function InstagramSocialFeed() {
   };
 
   const fetchPosts = async () => {
-    if (!user) return;
+    if (!user || !tenant?.id) return;
 
-    // Fetch fresh following list to avoid stale state issues
-    const { data: freshFollowing } = await supabase
-      .from("employee_connections")
-      .select("following_id")
-      .eq("follower_id", user.id);
-    
-    const freshFollowingIds = freshFollowing?.map((d: any) => d.following_id) || [];
-    
-    // Get posts from self and followed users
-    const viewableUserIds = [user.id, ...freshFollowingIds];
+    // Get all user IDs belonging to the same tenant
+    const { data: tenantUsers, error: tenantUsersError } = await supabase
+      .from('tenant_users')
+      .select('user_id')
+      .eq('tenant_id', tenant.id);
+
+    if (tenantUsersError || !tenantUsers || tenantUsers.length === 0) {
+      console.error('Error fetching tenant users:', tenantUsersError);
+      setPosts([]);
+      return;
+    }
+
+    const tenantUserIds = tenantUsers.map(tu => tu.user_id);
     
     const { data, error } = await supabase
       .from("social_posts")
@@ -159,7 +164,7 @@ export function InstagramSocialFeed() {
         social_comments(count),
         social_post_attachments(id, file_url, file_type, file_name)
       `)
-      .in("user_id", viewableUserIds)
+      .in("user_id", tenantUserIds)
       .order("created_at", { ascending: false });
 
     // Fetch profiles for post authors separately
