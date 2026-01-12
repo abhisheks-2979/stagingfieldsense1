@@ -386,6 +386,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/distributor-portal/fy-plan" element={<DistributorFYPlanPage />} />
 
         {/* Institutional Sales Routes */}
+        <Route path="/institutional-sales" element={<ProtectedRoute><InstitutionalSalesDashboard /></ProtectedRoute>} />
         <Route path="/institutional" element={<ProtectedRoute><InstitutionalSalesDashboard /></ProtectedRoute>} />
         <Route path="/institutional/leads" element={<ProtectedRoute><LeadManagement /></ProtectedRoute>} />
         <Route path="/institutional/accounts" element={<ProtectedRoute><AccountManagement /></ProtectedRoute>} />
