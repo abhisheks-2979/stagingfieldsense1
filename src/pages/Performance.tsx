@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import { useActivePerformanceModule } from "@/hooks/useActivePerformanceModule";
 import { Loader2 } from "lucide-react";
-import MyTargets from "./MyTargets";
+import PerformanceDashboard from "./PerformanceDashboard";
 import Leaderboard from "./Leaderboard";
 
 const Performance = () => {
@@ -30,9 +30,9 @@ const Performance = () => {
     return <Leaderboard />;
   }
 
-  // If target_actual is active, show target vs actual view
+  // If target_actual is active, show target vs actual performance dashboard
   if (isTargetActualActive) {
-    return <MyTargets />;
+    return <PerformanceDashboard />;
   }
 
   // Fallback - should not reach here
