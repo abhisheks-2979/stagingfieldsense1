@@ -77,12 +77,8 @@ export const Navbar = memo(() => {
       { icon: Trophy, label: "Competition Master", href: "/competition-master", color: "from-slate-500 to-slate-600" },
       { icon: Gift, label: t('nav.schemes'), href: "/schemes", color: "from-pink-500 to-pink-600" },
       { icon: CreditCard, label: t('nav.expenses'), href: "/expenses", color: "from-indigo-500 to-indigo-600" },
+      { icon: Trophy, label: "Leaderboard", href: "/leaderboard", color: "from-yellow-500 to-yellow-600" },
     ];
-
-    // Add Leaderboard only if gamification is active
-    if (isGamificationActive) {
-      baseItems.push({ icon: Trophy, label: "Leader board", href: "/leaderboard", color: "from-yellow-500 to-yellow-600" });
-    }
 
     // Add remaining items
     baseItems.push(
