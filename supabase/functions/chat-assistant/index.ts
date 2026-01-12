@@ -348,7 +348,7 @@ async function executeQuery(supabase: any, userId: string, toolName: string, par
       const attendanceMap = new Map((attendance || []).map((a: any) => [a.user_id, a]));
       
       const teamAttendance = (profiles || []).map((p: any) => {
-        const att = attendanceMap.get(p.id);
+        const att = attendanceMap.get(p.id) as any;
         return {
           name: p.full_name,
           user_id: p.id,

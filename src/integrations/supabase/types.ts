@@ -1367,6 +1367,7 @@ export type Database = {
           created_at: string | null
           email: string | null
           gstin: string | null
+          header_name: string | null
           id: string
           ifsc: string | null
           invoice_template: string | null
@@ -1387,6 +1388,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           gstin?: string | null
+          header_name?: string | null
           id?: string
           ifsc?: string | null
           invoice_template?: string | null
@@ -1407,6 +1409,7 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           gstin?: string | null
+          header_name?: string | null
           id?: string
           ifsc?: string | null
           invoice_template?: string | null
@@ -1447,6 +1450,42 @@ export type Database = {
           level_definitions?: Json | null
           name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      competency_coaching_notes: {
+        Row: {
+          action_items: Json | null
+          competency_template_id: string | null
+          created_at: string
+          id: string
+          manager_id: string
+          note: string
+          scorecard_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_items?: Json | null
+          competency_template_id?: string | null
+          created_at?: string
+          id?: string
+          manager_id: string
+          note: string
+          scorecard_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_items?: Json | null
+          competency_template_id?: string | null
+          created_at?: string
+          id?: string
+          manager_id?: string
+          note?: string
+          scorecard_id?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -2290,6 +2329,68 @@ export type Database = {
             columns: ["reports_to"]
             isOneToOne: false
             referencedRelation: "distributor_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      distributor_evaluation_tasks: {
+        Row: {
+          assigned_to: string | null
+          attachment_urls: string[] | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          distributor_id: string
+          due_date: string | null
+          id: string
+          notes: string | null
+          priority: string | null
+          score: number | null
+          status: string | null
+          task_key: string
+          task_label: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          attachment_urls?: string[] | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          distributor_id: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          priority?: string | null
+          score?: number | null
+          status?: string | null
+          task_key: string
+          task_label: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          attachment_urls?: string[] | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          distributor_id?: string
+          due_date?: string | null
+          id?: string
+          notes?: string | null
+          priority?: string | null
+          score?: number | null
+          status?: string | null
+          task_key?: string
+          task_label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distributor_evaluation_tasks_distributor_id_fkey"
+            columns: ["distributor_id"]
+            isOneToOne: false
+            referencedRelation: "distributors"
             referencedColumns: ["id"]
           },
         ]
@@ -3671,6 +3772,95 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      hierarchy_target_allocations: {
+        Row: {
+          allocated_value: number | null
+          created_at: string
+          id: string
+          manager_id: string | null
+          month: number | null
+          period_end: string | null
+          period_start: string | null
+          status: string | null
+          target_type: string | null
+          target_value: number | null
+          updated_at: string
+          user_id: string
+          year: number | null
+        }
+        Insert: {
+          allocated_value?: number | null
+          created_at?: string
+          id?: string
+          manager_id?: string | null
+          month?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          status?: string | null
+          target_type?: string | null
+          target_value?: number | null
+          updated_at?: string
+          user_id: string
+          year?: number | null
+        }
+        Update: {
+          allocated_value?: number | null
+          created_at?: string
+          id?: string
+          manager_id?: string | null
+          month?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          status?: string | null
+          target_type?: string | null
+          target_value?: number | null
+          updated_at?: string
+          user_id?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
+      hierarchy_target_history: {
+        Row: {
+          allocation_id: string | null
+          change_reason: string | null
+          changed_by: string | null
+          created_at: string
+          id: string
+          new_value: number | null
+          previous_value: number | null
+          user_id: string
+        }
+        Insert: {
+          allocation_id?: string | null
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          new_value?: number | null
+          previous_value?: number | null
+          user_id: string
+        }
+        Update: {
+          allocation_id?: string | null
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          new_value?: number | null
+          previous_value?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hierarchy_target_history_allocation_id_fkey"
+            columns: ["allocation_id"]
+            isOneToOne: false
+            referencedRelation: "hierarchy_target_allocations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       holidays: {
         Row: {
@@ -8540,6 +8730,42 @@ export type Database = {
           },
         ]
       }
+      user_business_plan_territories: {
+        Row: {
+          created_at: string
+          id: string
+          quantity_target: number | null
+          revenue_target: number | null
+          territory_id: string | null
+          updated_at: string
+          user_business_plans: Json | null
+          user_id: string
+          year: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          territory_id?: string | null
+          updated_at?: string
+          user_business_plans?: Json | null
+          user_id: string
+          year?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          territory_id?: string | null
+          updated_at?: string
+          user_business_plans?: Json | null
+          user_id?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
       user_invitations: {
         Row: {
           completed_at: string | null
@@ -9489,6 +9715,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      van_stock_opening_edits: {
+        Row: {
+          created_at: string
+          edit_date: string | null
+          id: string
+          new_quantity: number | null
+          previous_quantity: number | null
+          product_id: string | null
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          edit_date?: string | null
+          id?: string
+          new_quantity?: number | null
+          previous_quantity?: number | null
+          product_id?: string | null
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          edit_date?: string | null
+          id?: string
+          new_quantity?: number | null
+          previous_quantity?: number | null
+          product_id?: string | null
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       vans: {
         Row: {
