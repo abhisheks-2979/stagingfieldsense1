@@ -1275,14 +1275,14 @@ const Analytics = () => {
           </Card>
 
           <Tabs defaultValue="progress" className="space-y-4">
-            <TabsList className="flex w-full overflow-x-auto gap-1 p-1">
+            <TabsList className="flex w-full overflow-x-auto gap-3 p-1">
               <TabsTrigger value="kpi" className="flex-shrink-0">KPI</TabsTrigger>
               <TabsTrigger value="progress" className="flex-shrink-0">Dashboard</TabsTrigger>
               <TabsTrigger value="products" className="flex-shrink-0">Products</TabsTrigger>
               <TabsTrigger value="retailers" className="flex-shrink-0">Retailers</TabsTrigger>
               <TabsTrigger value="predictions" className="flex-shrink-0">Predictions</TabsTrigger>
               <TabsTrigger value="calendar" className="flex-shrink-0">Calendar</TabsTrigger>
-              <TabsTrigger value="sql-report" className="flex-shrink-0">Report Me</TabsTrigger>
+              <TabsTrigger value="sql-report" className="flex-shrink-0">SQL Report</TabsTrigger>
             </TabsList>
 
             {/* KPI Dashboard */}
