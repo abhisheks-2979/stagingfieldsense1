@@ -16,6 +16,9 @@ import { ProfileAttachments } from '@/components/profile/ProfileAttachments';
 import { Layout } from '@/components/Layout';
 import { AboutViewMode } from '@/components/profile/about/AboutViewMode';
 import { AboutEditMode } from '@/components/profile/about/AboutEditMode';
+import { WorkExperienceSection } from '@/components/profile/about/WorkExperienceSection';
+import { EducationHistorySection } from '@/components/profile/about/EducationHistorySection';
+import { OnboardingChecklistSection } from '@/components/profile/about/OnboardingChecklistSection';
 
 interface Manager {
   id: string;
@@ -261,6 +264,16 @@ const UserProfile = () => {
                 />
               )}
 
+              {/* Work Experience Section */}
+              <WorkExperienceSection />
+
+              {/* Education Section */}
+              <EducationHistorySection />
+
+              {/* Onboarding Checklist Section */}
+              <OnboardingChecklistSection />
+
+              {/* Attachments Section */}
               <ProfileAttachments />
             </TabsContent>
 
