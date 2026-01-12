@@ -734,11 +734,19 @@ export function UserFYPlanTarget({ targetUserId }: UserFYPlanTargetProps = {}) {
     e.preventDefault();
     if (!effectiveUserId) return;
     try {
+      // Construct fiscal_year string (e.g., "FY 2026-27" for year 2027)
+      const fyStartYear = planForm.year - 1;
+      const fyEndYear = planForm.year;
+      const fiscalYear = `FY ${fyStartYear}-${String(fyEndYear).slice(-2)}`;
+      
       const { data, error } = await supabase
         .from('user_business_plans')
         .insert({
           user_id: effectiveUserId,
           year: planForm.year,
+          year_start: fyStartYear,
+          year_end: fyEndYear,
+          fiscal_year: fiscalYear,
           quantity_target: parseFloat(planForm.quantity_target) || 0,
           quantity_unit: planForm.quantity_unit,
           revenue_target: parseFloat(planForm.revenue_target) || 0,
