@@ -64,6 +64,45 @@ export type Database = {
           },
         ]
       }
+      ai_autonomous_actions: {
+        Row: {
+          action_data: Json | null
+          action_type: string
+          can_undo: boolean | null
+          created_at: string
+          executed_at: string | null
+          id: string
+          status: string
+          undo_until: string | null
+          undone_at: string | null
+          user_id: string
+        }
+        Insert: {
+          action_data?: Json | null
+          action_type: string
+          can_undo?: boolean | null
+          created_at?: string
+          executed_at?: string | null
+          id?: string
+          status?: string
+          undo_until?: string | null
+          undone_at?: string | null
+          user_id: string
+        }
+        Update: {
+          action_data?: Json | null
+          action_type?: string
+          can_undo?: boolean | null
+          created_at?: string
+          executed_at?: string | null
+          id?: string
+          status?: string
+          undo_until?: string | null
+          undone_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_feature_feedback: {
         Row: {
           created_at: string | null
@@ -108,6 +147,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      ai_insights: {
+        Row: {
+          action_data: Json | null
+          action_type: string | null
+          category: string
+          created_at: string
+          description: string
+          expires_at: string | null
+          id: string
+          insight_type: string
+          is_actioned: boolean | null
+          is_dismissed: boolean | null
+          is_read: boolean | null
+          priority: string
+          reference_id: string | null
+          reference_type: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_data?: Json | null
+          action_type?: string | null
+          category: string
+          created_at?: string
+          description: string
+          expires_at?: string | null
+          id?: string
+          insight_type: string
+          is_actioned?: boolean | null
+          is_dismissed?: boolean | null
+          is_read?: boolean | null
+          priority?: string
+          reference_id?: string | null
+          reference_type?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_data?: Json | null
+          action_type?: string | null
+          category?: string
+          created_at?: string
+          description?: string
+          expires_at?: string | null
+          id?: string
+          insight_type?: string
+          is_actioned?: boolean | null
+          is_dismissed?: boolean | null
+          is_read?: boolean | null
+          priority?: string
+          reference_id?: string | null
+          reference_type?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       analytics_likes: {
         Row: {
@@ -184,6 +283,51 @@ export type Database = {
           is_active?: boolean | null
           updated_at?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      aspirations_and_preferences: {
+        Row: {
+          career_goal: string | null
+          created_at: string | null
+          dream_role: string | null
+          favorite_activity: string | null
+          five_year_vision: string | null
+          id: string
+          motivation_driver: string | null
+          preferred_reward: string | null
+          preferred_work_style: string | null
+          team_preference: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          career_goal?: string | null
+          created_at?: string | null
+          dream_role?: string | null
+          favorite_activity?: string | null
+          five_year_vision?: string | null
+          id?: string
+          motivation_driver?: string | null
+          preferred_reward?: string | null
+          preferred_work_style?: string | null
+          team_preference?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          career_goal?: string | null
+          created_at?: string | null
+          dream_role?: string | null
+          favorite_activity?: string | null
+          five_year_vision?: string | null
+          id?: string
+          motivation_driver?: string | null
+          preferred_reward?: string | null
+          preferred_work_style?: string | null
+          team_preference?: string | null
+          updated_at?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -1489,6 +1633,57 @@ export type Database = {
         }
         Relationships: []
       }
+      competency_templates: {
+        Row: {
+          calculation_formula: Json
+          category: string
+          competency_code: string
+          competency_name: string
+          created_at: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          max_score: number | null
+          role_type: string
+          sort_order: number | null
+          updated_at: string | null
+          weightage: number
+        }
+        Insert: {
+          calculation_formula?: Json
+          category: string
+          competency_code: string
+          competency_name: string
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_score?: number | null
+          role_type: string
+          sort_order?: number | null
+          updated_at?: string | null
+          weightage?: number
+        }
+        Update: {
+          calculation_formula?: Json
+          category?: string
+          competency_code?: string
+          competency_name?: string
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_score?: number | null
+          role_type?: string
+          sort_order?: number | null
+          updated_at?: string | null
+          weightage?: number
+        }
+        Relationships: []
+      }
       competition_contacts: {
         Row: {
           competitor_id: string
@@ -1987,6 +2182,63 @@ export type Database = {
           },
         ]
       }
+      distributor_business_plan_month_products: {
+        Row: {
+          business_plan_id: string
+          created_at: string
+          id: string
+          month_name: string
+          month_number: number
+          percentage: number
+          product_id: string
+          product_name: string
+          quantity_target: number | null
+          revenue_target: number | null
+          updated_at: string
+        }
+        Insert: {
+          business_plan_id: string
+          created_at?: string
+          id?: string
+          month_name: string
+          month_number: number
+          percentage?: number
+          product_id: string
+          product_name: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Update: {
+          business_plan_id?: string
+          created_at?: string
+          id?: string
+          month_name?: string
+          month_number?: number
+          percentage?: number
+          product_id?: string
+          product_name?: string
+          quantity_target?: number | null
+          revenue_target?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distributor_business_plan_month_products_business_plan_id_fkey"
+            columns: ["business_plan_id"]
+            isOneToOne: false
+            referencedRelation: "distributor_business_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "distributor_business_plan_month_products_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       distributor_business_plan_months: {
         Row: {
           business_plan_id: string
@@ -2257,6 +2509,149 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "distributor_claims_distributor_id_fkey"
+            columns: ["distributor_id"]
+            isOneToOne: false
+            referencedRelation: "distributors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      distributor_company_return_items: {
+        Row: {
+          batch_number: string | null
+          company_return_id: string
+          created_at: string
+          expiry_date: string | null
+          id: string
+          notes: string | null
+          product_id: string
+          product_name: string
+          quantity: number
+          reason: string
+          source: string | null
+          source_return_id: string | null
+          total: number | null
+          unit: string | null
+          unit_cost: number | null
+          variant_id: string | null
+        }
+        Insert: {
+          batch_number?: string | null
+          company_return_id: string
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          notes?: string | null
+          product_id: string
+          product_name: string
+          quantity: number
+          reason: string
+          source?: string | null
+          source_return_id?: string | null
+          total?: number | null
+          unit?: string | null
+          unit_cost?: number | null
+          variant_id?: string | null
+        }
+        Update: {
+          batch_number?: string | null
+          company_return_id?: string
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          notes?: string | null
+          product_id?: string
+          product_name?: string
+          quantity?: number
+          reason?: string
+          source?: string | null
+          source_return_id?: string | null
+          total?: number | null
+          unit?: string | null
+          unit_cost?: number | null
+          variant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distributor_company_return_items_company_return_id_fkey"
+            columns: ["company_return_id"]
+            isOneToOne: false
+            referencedRelation: "distributor_company_returns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "distributor_company_return_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      distributor_company_returns: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          created_by: string | null
+          credit_note_amount: number | null
+          credit_note_date: string | null
+          credit_note_number: string | null
+          distributor_id: string
+          id: string
+          notes: string | null
+          picked_up_at: string | null
+          return_date: string
+          return_number: string
+          status: string
+          submitted_at: string | null
+          total_quantity: number | null
+          total_value: number | null
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          credit_note_amount?: number | null
+          credit_note_date?: string | null
+          credit_note_number?: string | null
+          distributor_id: string
+          id?: string
+          notes?: string | null
+          picked_up_at?: string | null
+          return_date?: string
+          return_number: string
+          status?: string
+          submitted_at?: string | null
+          total_quantity?: number | null
+          total_value?: number | null
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          credit_note_amount?: number | null
+          credit_note_date?: string | null
+          credit_note_number?: string | null
+          distributor_id?: string
+          id?: string
+          notes?: string | null
+          picked_up_at?: string | null
+          return_date?: string
+          return_number?: string
+          status?: string
+          submitted_at?: string | null
+          total_quantity?: number | null
+          total_value?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "distributor_company_returns_distributor_id_fkey"
             columns: ["distributor_id"]
             isOneToOne: false
             referencedRelation: "distributors"
