@@ -12,6 +12,7 @@ import { OverallScoreCard } from "@/components/competency/OverallScoreCard";
 import { CompetencyRadarChart } from "@/components/competency/CompetencyRadarChart";
 import { CompetencyScoreCard } from "@/components/competency/CompetencyScoreCard";
 import { ImprovementPlanCard } from "@/components/competency/ImprovementPlanCard";
+import { CompetencyFrameworkDialog } from "@/components/competency/CompetencyFrameworkDialog";
 import { Layout } from "@/components/Layout";
 import { Sparkles, RefreshCw, Users, Loader2 } from "lucide-react";
 import { format, subMonths, startOfMonth } from "date-fns";
@@ -31,6 +32,7 @@ const getMonthOptions = () => {
 
 export default function CompetencyDashboard() {
   const { user, userProfile } = useAuth();
+  const navigate = useNavigate();
   const [selectedMonth, setSelectedMonth] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   
@@ -90,9 +92,12 @@ export default function CompetencyDashboard() {
       <div className="p-4 space-y-6 pb-24">
         {/* Page Title with Controls */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">My Competency Dashboard</h1>
-            <p className="text-sm text-muted-foreground">AI-driven performance insights</p>
+          <div className="flex items-center gap-2">
+            <div>
+              <h1 className="text-xl font-bold">My Competency Dashboard</h1>
+              <p className="text-sm text-muted-foreground">AI-driven performance insights</p>
+            </div>
+            <CompetencyFrameworkDialog />
           </div>
           <div className="flex items-center gap-2">
             {isManager && (
@@ -179,7 +184,7 @@ export default function CompetencyDashboard() {
               <h2 className="text-base font-semibold mb-3">Competency Breakdown</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 {scores.map(score => (
-                  <CompetencyScoreCard key={score.id} score={score} />
+                  <CompetencyScoreCard key={score.id} score={score} onClick={() => navigate(`/competency/${score.competency_templates?.id}`)} />
                 ))}
               </div>
             </div>

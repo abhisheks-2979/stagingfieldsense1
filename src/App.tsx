@@ -7,9 +7,8 @@ import { PricingPage } from "@/pages/website/PricingPage";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
-import { TenantProvider } from "@/hooks/useTenant";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { RoleBasedAuthPage } from "@/components/auth/RoleBasedAuthPage";
 import { useMasterDataCache } from "@/hooks/useMasterDataCache";
@@ -18,6 +17,7 @@ import { useAndroidBackButton } from "@/hooks/useAndroidBackButton";
 import { visitStatusCache } from "@/lib/visitStatusCache";
 import { NetworkProvider } from "@/contexts/NetworkContext";
 import { SlowConnectionBanner } from "@/components/SlowConnectionBanner";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 
 // Initialize visit status cache early to avoid flicker
 visitStatusCache.init();
@@ -35,6 +35,7 @@ import ROICalculator from "./pages/website/ROICalculator";
 import InsightsPage from "./pages/website/InsightsPage";
 import MigrationPlanPage from "./pages/website/MigrationPlanPage";
 import MigrationChecklistPage from "./pages/website/MigrationChecklistPage";
+import ImplementationToolkitPage from "./pages/website/ImplementationToolkitPage";
 import { ProfessionalServicesROIBlog } from "./pages/website/blogs/ProfessionalServicesROIBlog";
 import { ProfessionalServicesChecklistBlog } from "./pages/website/blogs/ProfessionalServicesChecklistBlog";
 import { ContactPage } from "./pages/website/ContactPage";
@@ -63,13 +64,18 @@ import { AddBeat } from "./pages/AddBeat";
 import AddRecords from "./pages/AddRecords";
 import Leaderboard from "./pages/Leaderboard";
 import Performance from "./pages/Performance";
-import SalesCoach from "./pages/SalesCoach";
+
+import CompetencyDashboard from "./pages/CompetencyDashboard";
+import TeamCompetency from "./pages/TeamCompetency";
+import CompetencyAdmin from "./pages/CompetencyAdmin";
+import CompetencyDetail from "./pages/CompetencyDetail";
 import Analytics from "./pages/Analytics";
 import { Schemes } from "./pages/Schemes";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import AdminControls from "./pages/AdminControls";
 import FeatureManagement from "./pages/FeatureManagement";
 import ProductManagementPage from "./pages/ProductManagementPage";
+import SchemeMasterPage from "./pages/SchemeMasterPage";
 import AttendanceManagement from "./pages/AttendanceManagement";
 import ActivitiesInfo from "./pages/ActivitiesInfo";
 import BadgesInfo from "./pages/BadgesInfo";
@@ -85,6 +91,7 @@ import Employee360 from "./pages/Employee360";
 import Vendors from "./pages/Vendors";
 import { RetailerDetail } from "./pages/RetailerDetail";
 import TerritoriesAndDistributors from "./pages/TerritoriesAndDistributors";
+import TerritoryDetail from "./pages/TerritoryDetail";
 import Operations from "./pages/Operations";
 import GPSTrack from "./pages/GPSTrack";
 import GPSTrackManagement from "./pages/GPSTrackManagement";
@@ -96,6 +103,7 @@ import UserProfile from "./pages/UserProfile";
 import CompleteProfile from "./pages/CompleteProfile";
 import GamificationAdmin from "./pages/GamificationAdmin";
 import InvoiceManagement from "./pages/InvoiceManagement";
+import CompanyProfile from "./pages/CompanyProfile";
 import GamePolicy from "./pages/GamePolicy";
 import CreditManagement from "./pages/CreditManagement";
 import RetailerLoyaltyAdmin from "./pages/RetailerLoyaltyAdmin";
@@ -107,11 +115,15 @@ import PriceBookAdmin from "./pages/admin/PriceBookAdmin";
 import PriceBookDetail from "./pages/admin/PriceBookDetail";
 import RecycleBin from "./pages/RecycleBin";
 import RecycleBinAdmin from "./pages/admin/RecycleBinAdmin";
-import TenantManagement from "./pages/admin/TenantManagement";
+import DistributorPortalAdmin from "./pages/admin/DistributorPortalAdmin";
+import TargetVsActual from "./pages/admin/TargetVsActual";
+import HierarchyTargets from "./pages/admin/HierarchyTargets";
 import MyTargets from "./pages/MyTargets";
 import MyTarget from "./pages/MyTarget";
-import TargetAchievementAdvisor from "./pages/TargetAchievementAdvisor";
 import TeamTargets from "./pages/TeamTargets";
+import PerformanceDashboard from "./pages/PerformanceDashboard";
+import TargetAchievementAdvisor from "./pages/TargetAchievementAdvisor";
+import AutoPlanRationale from "./pages/AutoPlanRationale";
 import PendingPaymentsAll from "./pages/PendingPaymentsAll";
 import JointSalesAnalytics from "./pages/JointSalesAnalytics";
 import DistributorMaster from "./pages/DistributorMaster";
@@ -124,6 +136,8 @@ import ResetPassword from "./pages/ResetPassword";
 // Distributor Portal Pages
 import DistributorLogin from "./pages/distributor-portal/DistributorLogin";
 import DistributorDashboard from "./pages/distributor-portal/DistributorDashboard";
+import DMSLayout from "./pages/distributor-portal/DMSLayout";
+import DMSHomePage from "./pages/distributor-portal/DMSHomePage";
 import PrimaryOrdersList from "./pages/distributor-portal/PrimaryOrdersList";
 import CreatePrimaryOrder from "./pages/distributor-portal/CreatePrimaryOrder";
 import PrimaryOrderDetail from "./pages/distributor-portal/PrimaryOrderDetail";
@@ -137,6 +151,10 @@ import DistributorIdeas from "./pages/distributor-portal/DistributorIdeas";
 import DistributorProfile from "./pages/distributor-portal/DistributorProfile";
 import DistributorContactsPortal from "./pages/distributor-portal/DistributorContacts";
 import DistributorFYPlanPage from "./pages/distributor-portal/DistributorFYPlan";
+import RetailerReturns from "./pages/distributor-portal/RetailerReturns";
+import CompanyReturns from "./pages/distributor-portal/CompanyReturns";
+import InventoryLedger from "./pages/distributor-portal/InventoryLedger";
+import StockAdjustments from "./pages/distributor-portal/StockAdjustments";
 
 // Institutional Sales pages
 import InstitutionalSalesDashboard from "./pages/institutional/InstitutionalSalesDashboard";
@@ -193,20 +211,15 @@ const MasterDataCacheInitializer = () => {
 
 const App = () => {
   const [hasError, setHasError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    console.log("🚀 App component mounted");
-    
     const errorHandler = (event: ErrorEvent) => {
       console.error("Global error:", event.error ?? event.message);
-      setErrorMessage(event.message || "Unknown error occurred");
       setHasError(true);
     };
 
     const rejectionHandler = (event: PromiseRejectionEvent) => {
       console.error("Unhandled rejection:", event.reason);
-      setErrorMessage(event.reason?.message || "Promise rejection");
       setHasError(true);
     };
 
@@ -224,14 +237,13 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <NetworkProvider>
           <AuthProvider>
-            <TenantProvider>
-              <TooltipProvider>
-                <BrowserRouter>
-                  <SlowConnectionBanner />
-                  <AppContent hasError={hasError} />
-                </BrowserRouter>
-              </TooltipProvider>
-            </TenantProvider>
+            <TooltipProvider>
+              <BrowserRouter>
+                <SlowConnectionBanner />
+                <PWAInstallPrompt />
+                <AppContent hasError={hasError} />
+              </BrowserRouter>
+            </TooltipProvider>
           </AuthProvider>
         </NetworkProvider>
       </QueryClientProvider>
@@ -280,6 +292,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/insights" element={<InsightsPage />} />
         <Route path="/insights/migration-plan" element={<MigrationPlanPage />} />
         <Route path="/insights/migration-checklist" element={<MigrationChecklistPage />} />
+        <Route path="/insights/implementation-toolkit" element={<ImplementationToolkitPage />} />
         <Route path="/insights/professional-services-roi" element={<ProfessionalServicesROIBlog />} />
         <Route path="/insights/professional-services-checklist" element={<ProfessionalServicesChecklistBlog />} />
         <Route path="/request-demo" element={<DemoRequestPage />} />
@@ -297,12 +310,14 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/user_roles" element={<ProtectedRoute><UserRoles /></ProtectedRoute>} />
         <Route path="/security-management" element={<ProtectedRoute><SecurityManagement /></ProtectedRoute>} />
         <Route path="/product-management" element={<ProtectedRoute><ProductManagementPage /></ProtectedRoute>} />
+        <Route path="/scheme-management" element={<ProtectedRoute><SchemeMasterPage /></ProtectedRoute>} />
         <Route path="/attendance-management" element={<ProtectedRoute><AttendanceManagement /></ProtectedRoute>} />
         <Route path="/feedback-management" element={<ProtectedRoute><FeedbackManagement /></ProtectedRoute>} />
         <Route path="/competition-master" element={<ProtectedRoute><CompetitionMaster /></ProtectedRoute>} />
         <Route path="/competition-master/:competitorId" element={<ProtectedRoute><CompetitorDetail /></ProtectedRoute>} />
         <Route path="/retailer/:id" element={<RetailerDetail />} />
-        <Route path="/territories-and-distributors" element={<ProtectedRoute><TerritoriesAndDistributors /></ProtectedRoute>} />
+<Route path="/territories-and-distributors" element={<ProtectedRoute><TerritoriesAndDistributors /></ProtectedRoute>} />
+        <Route path="/territory/:id" element={<ProtectedRoute><TerritoryDetail /></ProtectedRoute>} />
         <Route path="/admin-expense-management" element={<ProtectedRoute><AdminExpenseManagement /></ProtectedRoute>} />
         <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
         <Route path="/visit-planner" element={<ProtectedRoute><VisitPlanner /></ProtectedRoute>} />
@@ -316,6 +331,11 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/add-retailer" element={<ProtectedRoute><AddRetailer /></ProtectedRoute>} />
         <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
         <Route path="/my-retailers" element={<ProtectedRoute><MyRetailers /></ProtectedRoute>} />
+        <Route path="/my-target" element={<ProtectedRoute><MyTarget /></ProtectedRoute>} />
+        <Route path="/performance-dashboard" element={<ProtectedRoute><PerformanceDashboard /></ProtectedRoute>} />
+        <Route path="/target-advisor" element={<ProtectedRoute><TargetAchievementAdvisor /></ProtectedRoute>} />
+        <Route path="/auto-plan-rationale" element={<ProtectedRoute><AutoPlanRationale /></ProtectedRoute>} />
+        <Route path="/admin/target-vs-actual" element={<ProtectedRoute><TargetVsActual /></ProtectedRoute>} />
         
         <Route path="/create-beat" element={<ProtectedRoute><CreateBeat /></ProtectedRoute>} />
         <Route path="/beat/:id" element={<ProtectedRoute><BeatDetail /></ProtectedRoute>} />
@@ -329,12 +349,16 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/activities-info" element={<ProtectedRoute><ActivitiesInfo /></ProtectedRoute>} />
         <Route path="/badges-info" element={<ProtectedRoute><BadgesInfo /></ProtectedRoute>} />
         <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
-        <Route path="/performance-dashboard" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
-        <Route path="/sales-coach" element={<ProtectedRoute><SalesCoach /></ProtectedRoute>} />
+        
+        <Route path="/competency-dashboard" element={<ProtectedRoute><CompetencyDashboard /></ProtectedRoute>} />
+        <Route path="/competency/:competencyId" element={<ProtectedRoute><CompetencyDetail /></ProtectedRoute>} />
+        <Route path="/team-competency" element={<ProtectedRoute><TeamCompetency /></ProtectedRoute>} />
+        <Route path="/competency-admin" element={<ProtectedRoute><CompetencyAdmin /></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
         <Route path="/schemes" element={<ProtectedRoute><Schemes /></ProtectedRoute>} />
         
         <Route path="/branding-requests" element={<ProtectedRoute><BrandingRequests /></ProtectedRoute>} />
+        <Route path="/admin/hierarchy-targets" element={<ProtectedRoute><HierarchyTargets /></ProtectedRoute>} />
         <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
         <Route path="/gps-track" element={<ProtectedRoute><GPSTrack /></ProtectedRoute>} />
         <Route path="/gps-track-management" element={<ProtectedRoute><GPSTrackManagement /></ProtectedRoute>} />
@@ -345,14 +369,13 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/retailer-loyalty-admin" element={<ProtectedRoute><RetailerLoyaltyAdmin /></ProtectedRoute>} />
         <Route path="/retailer-loyalty" element={<ProtectedRoute><RetailerLoyalty /></ProtectedRoute>} />
         <Route path="/invoice-management" element={<ProtectedRoute><InvoiceManagement /></ProtectedRoute>} />
+        <Route path="/company-profile" element={<ProtectedRoute><CompanyProfile /></ProtectedRoute>} />
         <Route path="/pending-payments-all" element={<ProtectedRoute><PendingPaymentsAll /></ProtectedRoute>} />
         <Route path="/admin/performance-module" element={<ProtectedRoute><PerformanceModuleAdmin /></ProtectedRoute>} />
         <Route path="/admin/price-books" element={<ProtectedRoute><PriceBookAdmin /></ProtectedRoute>} />
         <Route path="/admin/price-books/:id" element={<ProtectedRoute><PriceBookDetail /></ProtectedRoute>} />
-        <Route path="/my-target" element={<ProtectedRoute><MyTarget /></ProtectedRoute>} />
         <Route path="/my-targets" element={<ProtectedRoute><MyTargets /></ProtectedRoute>} />
         <Route path="/team-targets" element={<ProtectedRoute><TeamTargets /></ProtectedRoute>} />
-        <Route path="/target-advisor" element={<ProtectedRoute><TargetAchievementAdvisor /></ProtectedRoute>} />
         <Route path="/joint-sales-analytics" element={<ProtectedRoute><JointSalesAnalytics /></ProtectedRoute>} />
         <Route path="/features/beat-planning" element={<BeatPlanningFeature />} />
         <Route path="/features/retailer-management" element={<RetailerManagementFeature />} />
@@ -364,7 +387,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/employee-360" element={<ProtectedRoute><Employee360 /></ProtectedRoute>} />
         <Route path="/recycle-bin" element={<ProtectedRoute><RecycleBin /></ProtectedRoute>} />
         <Route path="/admin/recycle-bin" element={<ProtectedRoute><RecycleBinAdmin /></ProtectedRoute>} />
-        <Route path="/admin/tenants" element={<ProtectedRoute><TenantManagement /></ProtectedRoute>} />
+        <Route path="/admin/distributor-portal" element={<ProtectedRoute><DistributorPortalAdmin /></ProtectedRoute>} />
         <Route path="/distributor-master" element={<ProtectedRoute><DistributorMaster /></ProtectedRoute>} />
         <Route path="/add-distributor" element={<ProtectedRoute><AddDistributor /></ProtectedRoute>} />
         <Route path="/distributor/:id" element={<ProtectedRoute><DistributorDetail /></ProtectedRoute>} />
@@ -372,39 +395,48 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/primary-orders" element={<ProtectedRoute><PrimaryOrders /></ProtectedRoute>} />
 
         {/* Distributor Portal Routes */}
+        <Route path="/distributor-portal" element={<Navigate to="/distributor-portal/login" replace />} />
         <Route path="/distributor-portal/login" element={<DistributorLogin />} />
-        <Route path="/distributor-portal/dashboard" element={<DistributorDashboard />} />
-        <Route path="/distributor-portal/primary-orders" element={<PrimaryOrdersList />} />
-        <Route path="/distributor-portal/create-primary-order" element={<CreatePrimaryOrder />} />
-        <Route path="/distributor-portal/primary-order/:id" element={<PrimaryOrderDetail />} />
-        <Route path="/distributor-portal/inventory" element={<DistributorInventory />} />
-        <Route path="/distributor-portal/secondary-sales" element={<SecondarySales />} />
-        <Route path="/distributor-portal/packing-list" element={<PackingList />} />
-        <Route path="/distributor-portal/goods-receipt" element={<GoodsReceipt />} />
-        <Route path="/distributor-portal/claims" element={<DistributorClaims />} />
-        <Route path="/distributor-portal/support" element={<DistributorSupport />} />
-        <Route path="/distributor-portal/ideas" element={<DistributorIdeas />} />
-        <Route path="/distributor-portal/profile" element={<DistributorProfile />} />
-        <Route path="/distributor-portal/contacts" element={<DistributorContactsPortal />} />
-        <Route path="/distributor-portal/fy-plan" element={<DistributorFYPlanPage />} />
+        
+        {/* DMS Layout with persistent sidebar */}
+        <Route path="/distributor-portal" element={<DMSLayout />}>
+          <Route path="dashboard" element={<DMSHomePage />} />
+          <Route path="primary-orders" element={<PrimaryOrdersList />} />
+          <Route path="create-primary-order" element={<CreatePrimaryOrder />} />
+          <Route path="primary-order/:id" element={<PrimaryOrderDetail />} />
+          <Route path="inventory" element={<DistributorInventory />} />
+          <Route path="secondary-sales" element={<SecondarySales />} />
+          <Route path="packing-list" element={<PackingList />} />
+          <Route path="goods-receipt/:orderId" element={<GoodsReceipt />} />
+          <Route path="goods-receipt" element={<GoodsReceipt />} />
+          <Route path="claims" element={<DistributorClaims />} />
+          <Route path="support" element={<DistributorSupport />} />
+          <Route path="ideas" element={<DistributorIdeas />} />
+          <Route path="profile" element={<DistributorProfile />} />
+          <Route path="contacts" element={<DistributorContactsPortal />} />
+          <Route path="fy-plan" element={<DistributorFYPlanPage />} />
+          <Route path="returns" element={<RetailerReturns />} />
+          <Route path="company-returns" element={<CompanyReturns />} />
+          <Route path="inventory-ledger" element={<InventoryLedger />} />
+          <Route path="stock-adjustments" element={<StockAdjustments />} />
+        </Route>
 
         {/* Institutional Sales Routes */}
         <Route path="/institutional-sales" element={<ProtectedRoute><InstitutionalSalesDashboard /></ProtectedRoute>} />
-        <Route path="/institutional" element={<ProtectedRoute><InstitutionalSalesDashboard /></ProtectedRoute>} />
-        <Route path="/institutional/leads" element={<ProtectedRoute><LeadManagement /></ProtectedRoute>} />
-        <Route path="/institutional/accounts" element={<ProtectedRoute><AccountManagement /></ProtectedRoute>} />
-        <Route path="/institutional/account/:id" element={<ProtectedRoute><AccountDetail /></ProtectedRoute>} />
-        <Route path="/institutional/contacts" element={<ProtectedRoute><ContactManagement /></ProtectedRoute>} />
-        <Route path="/institutional/contact/:id" element={<ProtectedRoute><ContactDetail /></ProtectedRoute>} />
-        <Route path="/institutional/opportunities" element={<ProtectedRoute><OpportunityManagement /></ProtectedRoute>} />
-        <Route path="/institutional/opportunity/:id" element={<ProtectedRoute><OpportunityDetail /></ProtectedRoute>} />
-        <Route path="/institutional/quotes" element={<ProtectedRoute><QuoteManagement /></ProtectedRoute>} />
-        <Route path="/institutional/quote/:id" element={<ProtectedRoute><QuoteDetail /></ProtectedRoute>} />
-        <Route path="/institutional/products" element={<ProtectedRoute><InstitutionalProducts /></ProtectedRoute>} />
-        <Route path="/institutional/order-commitments" element={<ProtectedRoute><OrderCommitments /></ProtectedRoute>} />
-        <Route path="/institutional/invoices" element={<ProtectedRoute><InstitutionalInvoices /></ProtectedRoute>} />
-        <Route path="/institutional/price-books" element={<ProtectedRoute><PriceBooks /></ProtectedRoute>} />
-        <Route path="/institutional/collections" element={<ProtectedRoute><Collections /></ProtectedRoute>} />
+        <Route path="/institutional-sales/leads" element={<ProtectedRoute><LeadManagement /></ProtectedRoute>} />
+        <Route path="/institutional-sales/accounts" element={<ProtectedRoute><AccountManagement /></ProtectedRoute>} />
+        <Route path="/institutional-sales/accounts/:id" element={<ProtectedRoute><AccountDetail /></ProtectedRoute>} />
+        <Route path="/institutional-sales/contacts" element={<ProtectedRoute><ContactManagement /></ProtectedRoute>} />
+        <Route path="/institutional-sales/contacts/:id" element={<ProtectedRoute><ContactDetail /></ProtectedRoute>} />
+        <Route path="/institutional-sales/opportunities" element={<ProtectedRoute><OpportunityManagement /></ProtectedRoute>} />
+        <Route path="/institutional-sales/opportunities/:id" element={<ProtectedRoute><OpportunityDetail /></ProtectedRoute>} />
+        <Route path="/institutional-sales/quotes" element={<ProtectedRoute><QuoteManagement /></ProtectedRoute>} />
+        <Route path="/institutional-sales/quotes/:id" element={<ProtectedRoute><QuoteDetail /></ProtectedRoute>} />
+        <Route path="/institutional-sales/products" element={<ProtectedRoute><InstitutionalProducts /></ProtectedRoute>} />
+        <Route path="/institutional-sales/order-commitments" element={<ProtectedRoute><OrderCommitments /></ProtectedRoute>} />
+        <Route path="/institutional-sales/invoices" element={<ProtectedRoute><InstitutionalInvoices /></ProtectedRoute>} />
+        <Route path="/institutional-sales/price-books" element={<ProtectedRoute><PriceBooks /></ProtectedRoute>} />
+        <Route path="/institutional-sales/collections" element={<ProtectedRoute><Collections /></ProtectedRoute>} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
