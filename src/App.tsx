@@ -64,6 +64,7 @@ import AddRecords from "./pages/AddRecords";
 import Leaderboard from "./pages/Leaderboard";
 import Performance from "./pages/Performance";
 import SalesCoach from "./pages/SalesCoach";
+import CompetencyDashboard from "./pages/CompetencyDashboard";
 import Analytics from "./pages/Analytics";
 import { Schemes } from "./pages/Schemes";
 import { AdminDashboard } from "./pages/AdminDashboard";
@@ -331,6 +332,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
         <Route path="/performance-dashboard" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
         <Route path="/sales-coach" element={<ProtectedRoute><SalesCoach /></ProtectedRoute>} />
+        <Route path="/competency-dashboard" element={<ProtectedRoute><CompetencyDashboard /></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
         <Route path="/schemes" element={<ProtectedRoute><Schemes /></ProtectedRoute>} />
         
