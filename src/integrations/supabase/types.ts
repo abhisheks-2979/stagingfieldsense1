@@ -9775,6 +9775,53 @@ export type Database = {
           },
         ]
       }
+      user_competency_monthly_scores: {
+        Row: {
+          calculated_at: string | null
+          competency_template_id: string
+          created_at: string | null
+          id: string
+          month_year: string
+          previous_month_score: number | null
+          raw_metrics: Json | null
+          score: number
+          trend: string | null
+          user_id: string
+        }
+        Insert: {
+          calculated_at?: string | null
+          competency_template_id: string
+          created_at?: string | null
+          id?: string
+          month_year: string
+          previous_month_score?: number | null
+          raw_metrics?: Json | null
+          score: number
+          trend?: string | null
+          user_id: string
+        }
+        Update: {
+          calculated_at?: string | null
+          competency_template_id?: string
+          created_at?: string | null
+          id?: string
+          month_year?: string
+          previous_month_score?: number | null
+          raw_metrics?: Json | null
+          score?: number
+          trend?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_competency_monthly_scores_competency_template_id_fkey"
+            columns: ["competency_template_id"]
+            isOneToOne: false
+            referencedRelation: "competency_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_invitations: {
         Row: {
           completed_at: string | null
@@ -9857,6 +9904,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_monthly_scorecards: {
+        Row: {
+          ai_action_plan: Json | null
+          ai_improvement_areas: Json | null
+          ai_strengths: Json | null
+          ai_summary: string | null
+          created_at: string | null
+          id: string
+          is_published: boolean | null
+          manager_id: string | null
+          month_year: string
+          overall_score: number
+          performance_band: string | null
+          published_at: string | null
+          rank_in_team: number | null
+          role_type: string
+          total_team_members: number | null
+          updated_at: string | null
+          user_id: string
+          weighted_score: number | null
+        }
+        Insert: {
+          ai_action_plan?: Json | null
+          ai_improvement_areas?: Json | null
+          ai_strengths?: Json | null
+          ai_summary?: string | null
+          created_at?: string | null
+          id?: string
+          is_published?: boolean | null
+          manager_id?: string | null
+          month_year: string
+          overall_score: number
+          performance_band?: string | null
+          published_at?: string | null
+          rank_in_team?: number | null
+          role_type: string
+          total_team_members?: number | null
+          updated_at?: string | null
+          user_id: string
+          weighted_score?: number | null
+        }
+        Update: {
+          ai_action_plan?: Json | null
+          ai_improvement_areas?: Json | null
+          ai_strengths?: Json | null
+          ai_summary?: string | null
+          created_at?: string | null
+          id?: string
+          is_published?: boolean | null
+          manager_id?: string | null
+          month_year?: string
+          overall_score?: number
+          performance_band?: string | null
+          published_at?: string | null
+          rank_in_team?: number | null
+          role_type?: string
+          total_team_members?: number | null
+          updated_at?: string | null
+          user_id?: string
+          weighted_score?: number | null
+        }
+        Relationships: []
       }
       user_onboarding_progress: {
         Row: {
