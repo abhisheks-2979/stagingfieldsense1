@@ -1275,14 +1275,28 @@ const Analytics = () => {
           </Card>
 
           <Tabs defaultValue="progress" className="space-y-4">
-            <TabsList className="flex w-full overflow-x-auto gap-3 p-1">
-              <TabsTrigger value="kpi" className="flex-shrink-0">KPI</TabsTrigger>
+            <TabsList className="flex w-full items-center gap-3 p-1">
               <TabsTrigger value="progress" className="flex-shrink-0">Dashboard</TabsTrigger>
-              <TabsTrigger value="products" className="flex-shrink-0">Products</TabsTrigger>
-              <TabsTrigger value="retailers" className="flex-shrink-0">Retailers</TabsTrigger>
-              <TabsTrigger value="predictions" className="flex-shrink-0">Predictions</TabsTrigger>
-              <TabsTrigger value="calendar" className="flex-shrink-0">Calendar</TabsTrigger>
-              <TabsTrigger value="sql-report" className="flex-shrink-0">SQL Report</TabsTrigger>
+              <TabsTrigger value="sql-report" className="flex-shrink-0">Management Report</TabsTrigger>
+              
+              {/* More tabs dropdown */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="flex-shrink-0 gap-1 ml-auto">
+                    More
+                    <ChevronDown size={14} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-1" align="end">
+                  <div className="space-y-1">
+                    <TabsTrigger value="kpi" className="w-full justify-start">KPI</TabsTrigger>
+                    <TabsTrigger value="products" className="w-full justify-start">Products</TabsTrigger>
+                    <TabsTrigger value="retailers" className="w-full justify-start">Retailers</TabsTrigger>
+                    <TabsTrigger value="predictions" className="w-full justify-start">Predictions</TabsTrigger>
+                    <TabsTrigger value="calendar" className="w-full justify-start">Calendar</TabsTrigger>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </TabsList>
 
             {/* KPI Dashboard */}
@@ -2037,87 +2051,16 @@ const Analytics = () => {
               </Card>
             </TabsContent>
 
-            {/* SQL Report Tab */}
+            {/* Management Report Tab */}
             <TabsContent value="sql-report" className="space-y-4">
               <Card className="shadow-lg">
                 <CardHeader>
-                  <CardTitle>SQL Report - Order Summary by User</CardTitle>
+                  <CardTitle>Order Summary by User</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    View confirmed order totals grouped by date for selected user
+                    View confirmed order totals grouped by date
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={sqlReportUser} onValueChange={setSqlReportUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !sqlReportDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {sqlReportDateRange.from ? format(sqlReportDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={sqlReportDateRange.from}
-                              onSelect={(date) => date && setSqlReportDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !sqlReportDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {sqlReportDateRange.to ? format(sqlReportDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={sqlReportDateRange.to}
-                              onSelect={(date) => date && setSqlReportDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSqlReportDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        title="Reset to last 7 days"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Button onClick={fetchSqlReportData} disabled={sqlReportLoading || !sqlReportUser}>
-                      <RefreshCw size={16} className={cn("mr-2", sqlReportLoading && "animate-spin")} />
-                      Run Query
-                    </Button>
-                  </div>
 
                   {sqlReportLoading ? (
                     <div className="text-center py-8">
@@ -2193,80 +2136,12 @@ const Analytics = () => {
               {/* Productivity Summary Section */}
               <Card className="shadow-lg">
                 <CardHeader>
-                  <CardTitle>SQL Report - Productivity Summary</CardTitle>
+                  <CardTitle>Productivity Summary</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    View visit productivity grouped by date for selected user
+                    View visit productivity grouped by date
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={productivityUser} onValueChange={setProductivityUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productivityDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productivityDateRange.from ? format(productivityDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productivityDateRange.from}
-                              onSelect={(date) => date && setProductivityDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productivityDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productivityDateRange.to ? format(productivityDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productivityDateRange.to}
-                              onSelect={(date) => date && setProductivityDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setProductivityDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        className="text-muted-foreground"
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
 
                   {productivityLoading ? (
                     <div className="text-center py-8">
@@ -2341,79 +2216,12 @@ const Analytics = () => {
               {/* Product and Revenue Performance Section */}
               <Card className="shadow-lg">
                 <CardHeader>
-                  <CardTitle>SQL Report - Product and Revenue Performance</CardTitle>
+                  <CardTitle>Product and Revenue Performance</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    View product-wise quantity sold and revenue for selected user
+                    View product-wise quantity sold and revenue
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={productRevenueUser} onValueChange={setProductRevenueUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productRevenueDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productRevenueDateRange.from ? format(productRevenueDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productRevenueDateRange.from}
-                              onSelect={(date) => date && setProductRevenueDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productRevenueDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productRevenueDateRange.to ? format(productRevenueDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productRevenueDateRange.to}
-                              onSelect={(date) => date && setProductRevenueDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setProductRevenueDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        title="Reset to last 7 days"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
 
                   {productRevenueLoading ? (
                     <div className="text-center py-8">
