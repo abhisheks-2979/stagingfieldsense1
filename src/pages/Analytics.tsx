@@ -147,6 +147,15 @@ const Analytics = () => {
     to: new Date()
   });
 
+  // Order Summary by User state (pie chart - all users)
+  const [orderSummaryByUserData, setOrderSummaryByUserData] = useState<{ full_name: string; total_order_value: number }[]>([]);
+  const [orderSummaryByUserLoading, setOrderSummaryByUserLoading] = useState(false);
+  const [orderSummaryDateRange, setOrderSummaryDateRange] = useState<{ from: Date; to: Date }>({
+    from: new Date('2026-01-01'),
+    to: new Date('2026-01-08')
+  });
+  const [orderSummaryDateOpen, setOrderSummaryDateOpen] = useState(false);
+
   // Productivity Report state
   const [productivityUser, setProductivityUser] = useState<string>('');
   const [productivityData, setProductivityData] = useState<any[]>([]);
@@ -493,6 +502,59 @@ const Analytics = () => {
       fetchSqlReportData();
     }
   }, [sqlReportUser, sqlReportDateRange]);
+
+  // Fetch Order Summary by User (all users - for pie chart)
+  const fetchOrderSummaryByUser = async () => {
+    setOrderSummaryByUserLoading(true);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          total_amount,
+          user_id,
+          profiles!orders_user_id_fkey(full_name)
+        `)
+        .eq('status', 'confirmed')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate);
+
+      if (error) {
+        console.error('Error fetching order summary by user:', error);
+        setOrderSummaryByUserData([]);
+        return;
+      }
+
+      // Group by user and sum totals
+      const userTotals: Record<string, { full_name: string; total_order_value: number }> = {};
+      
+      data?.forEach((order: any) => {
+        const userName = order.profiles?.full_name || 'Unknown';
+        if (!userTotals[userName]) {
+          userTotals[userName] = {
+            full_name: userName,
+            total_order_value: 0
+          };
+        }
+        userTotals[userName].total_order_value += Number(order.total_amount || 0);
+      });
+
+      const sortedData = Object.values(userTotals).sort((a, b) => b.total_order_value - a.total_order_value);
+      setOrderSummaryByUserData(sortedData);
+    } catch (error) {
+      console.error('Error in order summary by user:', error);
+      setOrderSummaryByUserData([]);
+    } finally {
+      setOrderSummaryByUserLoading(false);
+    }
+  };
+
+  // Auto-fetch order summary by user on mount and when date changes
+  useEffect(() => {
+    fetchOrderSummaryByUser();
+  }, [orderSummaryDateRange]);
 
   // Fetch Productivity Report data
   const fetchProductivityData = async () => {
@@ -2054,80 +2116,115 @@ const Analytics = () => {
             {/* Management Report Tab */}
             <TabsContent value="sql-report" className="space-y-4">
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>Order Summary by User</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View confirmed order totals grouped by date
-                  </p>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle>Order Summary by User</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      View confirmed order totals grouped by user
+                    </p>
+                  </div>
+                  <Popover open={orderSummaryDateOpen} onOpenChange={setOrderSummaryDateOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 gap-1">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        <span className="text-xs">
+                          {format(orderSummaryDateRange.from, 'MMM dd')} - {format(orderSummaryDateRange.to, 'MMM dd, yyyy')}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <Calendar
+                        mode="range"
+                        selected={{ from: orderSummaryDateRange.from, to: orderSummaryDateRange.to }}
+                        onSelect={(range) => {
+                          if (range?.from && range?.to) {
+                            setOrderSummaryDateRange({ from: range.from, to: range.to });
+                            setOrderSummaryDateOpen(false);
+                          }
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
 
-                  {sqlReportLoading ? (
+                  {orderSummaryByUserLoading ? (
                     <div className="text-center py-8">
                       <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
-                  ) : sqlReportData.length > 0 ? (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-3 text-sm font-medium">Order Date</th>
-                            <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                            <th className="text-right p-3 text-sm font-medium">Total Order Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sqlReportData.map((row, index) => (
-                            <tr key={index} className="border-b hover:bg-muted/30">
-                              <td className="p-3 text-sm">{format(new Date(row.order_date), 'MMM dd, yyyy')}</td>
-                              <td className="p-3 text-sm">{row.full_name}</td>
-                              <td className="p-3 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-muted/30">
-                          <tr>
-                            <td className="p-3 text-sm font-semibold" colSpan={2}>Total</td>
-                            <td className="p-3 text-sm text-right font-bold text-primary">
-                              ₹{sqlReportData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  ) : sqlReportUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
-                    </div>
-                  )}
-
-                  {/* Horizontal Bar Chart for Order Summary */}
-                  {sqlReportData.length > 0 && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold mb-4">Order Summary Data for {sqlReportUser}</h4>
-                      <div className="h-[300px]">
+                  ) : orderSummaryByUserData.length > 0 ? (
+                    <>
+                      {/* Pie Chart */}
+                      <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={sqlReportData.map(row => ({
-                              date: format(new Date(row.order_date), 'MMM dd'),
-                              value: row.total_order_value
-                            }))}
-                            layout="vertical"
-                            margin={{ top: 5, right: 30, left: 60, bottom: 5 }}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis type="number" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} fontSize={9} />
-                            <YAxis type="category" dataKey="date" fontSize={9} />
+                          <PieChart>
+                            <Pie
+                              data={orderSummaryByUserData}
+                              dataKey="total_order_value"
+                              nameKey="full_name"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={120}
+                              label={({ full_name, percent }) => `${full_name} (${(percent * 100).toFixed(0)}%)`}
+                              labelLine={true}
+                            >
+                              {orderSummaryByUserData.map((entry, index) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={[
+                                    'hsl(var(--primary))',
+                                    'hsl(var(--chart-2))',
+                                    'hsl(var(--chart-3))',
+                                    'hsl(var(--chart-4))',
+                                    'hsl(var(--chart-5))',
+                                    '#8884d8',
+                                    '#82ca9d',
+                                    '#ffc658',
+                                    '#ff7c43',
+                                    '#a05195'
+                                  ][index % 10]} 
+                                />
+                              ))}
+                            </Pie>
                             <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
-                            <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                          </BarChart>
+                            <Legend />
+                          </PieChart>
                         </ResponsiveContainer>
                       </div>
+
+                      {/* Data Table */}
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr className="border-b">
+                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
+                              <th className="text-right p-3 text-sm font-medium">Total Order Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orderSummaryByUserData.map((row, index) => (
+                              <tr key={index} className="border-b hover:bg-muted/30">
+                                <td className="p-3 text-sm">{row.full_name}</td>
+                                <td className="p-3 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-muted/30">
+                            <tr>
+                              <td className="p-3 text-sm font-semibold">Total</td>
+                              <td className="p-3 text-sm text-right font-bold text-primary">
+                                ₹{orderSummaryByUserData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
