@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { SignInForm } from './SignInForm';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Shield, User } from 'lucide-react';
+import { Shield, User, Activity } from 'lucide-react';
 import quickappLogo from "@/assets/quickapp-logo-full-yellow-black.png";
 
 type AuthMode = 'role-selection' | 'admin-signin' | 'user-signin' | 'forgot';
@@ -13,6 +13,7 @@ type UserType = 'admin' | 'user';
 
 export const RoleBasedAuthPage = () => {
   const { user, loading } = useAuth();
+  const navigate = useNavigate();
   const [authMode, setAuthMode] = useState<AuthMode>('user-signin');
   const [selectedUserType, setSelectedUserType] = useState<UserType | null>('user');
 
@@ -176,6 +177,19 @@ export const RoleBasedAuthPage = () => {
               </div>
             </div>
           )}
+          
+          {/* Status Page Link */}
+          <div className="mt-6 pt-4 border-t">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/status')}
+              className="w-full text-muted-foreground hover:text-primary"
+            >
+              <Activity className="h-4 w-4 mr-2" />
+              Check metrics in Status.QuickApp
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
