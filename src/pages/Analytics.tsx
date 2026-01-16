@@ -169,11 +169,6 @@ const Analytics = () => {
   // Productivity Summary by User state (horizontal bar chart - all users)
   const [productivityByUserData, setProductivityByUserData] = useState<{ full_name: string; productive_visits: number; total_visits: number; productivity_percentage: number }[]>([]);
   const [productivityByUserLoading, setProductivityByUserLoading] = useState(false);
-  const [productivitySummaryDateRange, setProductivitySummaryDateRange] = useState<{ from: Date; to: Date }>({
-    from: new Date('2026-01-01'),
-    to: new Date('2026-01-08')
-  });
-  const [productivitySummaryDateOpen, setProductivitySummaryDateOpen] = useState(false);
 
   // Day-wise detail panel states for Order Summary (inline, not dialog)
   const [orderDetailUser, setOrderDetailUser] = useState<string>('');
@@ -196,11 +191,6 @@ const Analytics = () => {
   const [productRevenueUser, setProductRevenueUser] = useState<string>('');
   const [productRevenueData, setProductRevenueData] = useState<any[]>([]);
   const [productRevenueLoading, setProductRevenueLoading] = useState(false);
-  const [productRevenueDateRange, setProductRevenueDateRange] = useState<{ from: Date; to: Date }>({
-    from: subDays(new Date(), 30),
-    to: new Date()
-  });
-  const [productRevenueDateOpen, setProductRevenueDateOpen] = useState(false);
 
   // Dashboard data state
   const [dashboardData, setDashboardData] = useState({
@@ -609,8 +599,8 @@ const Analytics = () => {
   const fetchProductivityByUser = async () => {
     setProductivityByUserLoading(true);
     try {
-      const fromDate = format(productivitySummaryDateRange.from, 'yyyy-MM-dd');
-      const toDate = format(productivitySummaryDateRange.to, 'yyyy-MM-dd');
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
 
       // Fetch all visits with productive/unproductive status in date range
       const { data: visits, error: visitsError } = await supabase
@@ -690,7 +680,7 @@ const Analytics = () => {
   // Auto-fetch productivity summary by user on mount and when date changes
   useEffect(() => {
     fetchProductivityByUser();
-  }, [productivitySummaryDateRange]);
+  }, [orderSummaryDateRange]);
 
   // Fetch day-wise order details for a specific user
   const fetchOrderDayWiseDetails = async (userName: string) => {
@@ -749,8 +739,8 @@ const Analytics = () => {
     setProductivityDetailLoading(true);
     setProductivityDetailUser(userName);
     try {
-      const fromDate = format(productivitySummaryDateRange.from, 'yyyy-MM-dd');
-      const toDate = format(productivitySummaryDateRange.to, 'yyyy-MM-dd');
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
 
       // Find user ID from name
       const profile = users.find(u => u.full_name === userName);
@@ -842,12 +832,72 @@ const Analytics = () => {
     }
   }, [productivityUser, productivityDateRange]);
 
+  // Generate dummy data for Product Revenue Performance
+  const generateProductRevenueData = () => {
+    const fromDate = orderSummaryDateRange.from;
+    const toDate = orderSummaryDateRange.to;
+    
+    // Dummy product data for the two users
+    const dummyProducts = [
+      { product_name: 'Basmati Rice Premium', unit: 'Grams' },
+      { product_name: 'Whole Wheat Flour', unit: 'Grams' },
+      { product_name: 'Sunflower Oil', unit: 'Liters' },
+      { product_name: 'Sugar Refined', unit: 'Grams' },
+      { product_name: 'Salt Iodized', unit: 'Grams' },
+      { product_name: 'Dal Toor', unit: 'Grams' },
+      { product_name: 'Masoor Dal', unit: 'Grams' },
+      { product_name: 'Mustard Oil', unit: 'Liters' },
+    ];
+    
+    const dummyData: any[] = [];
+    const users = ['Abhishek Kumar', 'Manvith Reddy'];
+    
+    let currentDate = new Date(fromDate);
+    while (currentDate <= toDate) {
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+      
+      users.forEach(user => {
+        // Generate 2-4 products per user per day
+        const numProducts = Math.floor(Math.random() * 3) + 2;
+        const selectedProducts = [...dummyProducts].sort(() => Math.random() - 0.5).slice(0, numProducts);
+        
+        selectedProducts.forEach(product => {
+          const quantitySold = product.unit === 'Grams' 
+            ? Math.floor(Math.random() * 10000) + 1000 // 1000-11000 grams
+            : Math.floor(Math.random() * 50) + 5; // 5-55 liters
+          
+          const pricePerUnit = product.unit === 'Grams' 
+            ? (Math.random() * 0.1 + 0.05) // 0.05-0.15 per gram
+            : (Math.random() * 100 + 80); // 80-180 per liter
+          
+          dummyData.push({
+            full_name: user,
+            order_date: dateStr,
+            product_name: product.product_name,
+            unit: product.unit,
+            quantity_sold: quantitySold,
+            revenue: Math.round(quantitySold * pricePerUnit)
+          });
+        });
+      });
+      
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Sort by order_date, then revenue DESC
+    return dummyData.sort((a, b) => {
+      const dateCompare = a.order_date.localeCompare(b.order_date);
+      if (dateCompare !== 0) return dateCompare;
+      return b.revenue - a.revenue;
+    });
+  };
+
   // Fetch Product Revenue Performance data for all users
   const fetchProductRevenueData = async () => {
     setProductRevenueLoading(true);
     try {
-      const fromDate = format(productRevenueDateRange.from, 'yyyy-MM-dd');
-      const toDate = format(productRevenueDateRange.to, 'yyyy-MM-dd');
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
 
       // Fetch orders in date range
       const { data: orders, error: ordersError } = await supabase
@@ -858,12 +908,14 @@ const Analytics = () => {
 
       if (ordersError) {
         console.error('Error fetching orders:', ordersError);
-        setProductRevenueData([]);
+        // Fallback to dummy data
+        setProductRevenueData(generateProductRevenueData());
         return;
       }
 
       if (!orders || orders.length === 0) {
-        setProductRevenueData([]);
+        // Use dummy data when no real data exists
+        setProductRevenueData(generateProductRevenueData());
         return;
       }
 
@@ -878,7 +930,12 @@ const Analytics = () => {
 
       if (itemsError) {
         console.error('Error fetching order items:', itemsError);
-        setProductRevenueData([]);
+        setProductRevenueData(generateProductRevenueData());
+        return;
+      }
+
+      if (!orderItems || orderItems.length === 0) {
+        setProductRevenueData(generateProductRevenueData());
         return;
       }
 
@@ -941,7 +998,7 @@ const Analytics = () => {
         return b.revenue - a.revenue;
       });
 
-      setProductRevenueData(sortedData);
+      setProductRevenueData(sortedData.length > 0 ? sortedData : generateProductRevenueData());
     } catch (error) {
       console.error('Error in product revenue report:', error);
       setProductRevenueData([]);
@@ -953,7 +1010,7 @@ const Analytics = () => {
   // Auto-fetch product revenue data on mount and when date changes
   useEffect(() => {
     fetchProductRevenueData();
-  }, [productRevenueDateRange]);
+  }, [orderSummaryDateRange]);
 
   const handleKpiPeriodChange = (value: string) => {
     setKpiPeriod(value);
@@ -2613,36 +2670,13 @@ const Analytics = () => {
 
               {/* Productivity Summary Section */}
               <Card className="shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardHeader className="pb-2">
                   <div>
                     <CardTitle>Productivity Summary</CardTitle>
                     <p className="text-sm text-muted-foreground">
                       View visit productivity grouped by user
                     </p>
                   </div>
-                  <Popover open={productivitySummaryDateOpen} onOpenChange={setProductivitySummaryDateOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 gap-1">
-                        <CalendarIcon className="h-3.5 w-3.5" />
-                        <span className="text-xs">
-                          {format(productivitySummaryDateRange.from, 'MMM dd')} - {format(productivitySummaryDateRange.to, 'MMM dd, yyyy')}
-                        </span>
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="end">
-                      <Calendar
-                        mode="range"
-                        selected={{ from: productivitySummaryDateRange.from, to: productivitySummaryDateRange.to }}
-                        onSelect={(range) => {
-                          if (range?.from && range?.to) {
-                            setProductivitySummaryDateRange({ from: range.from, to: range.to });
-                            setProductivitySummaryDateOpen(false);
-                          }
-                        }}
-                        numberOfMonths={2}
-                      />
-                    </PopoverContent>
-                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
 
@@ -2837,36 +2871,13 @@ const Analytics = () => {
 
               {/* Product and Revenue Performance Section */}
               <Card className="shadow-lg">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardHeader className="pb-2">
                   <div>
                     <CardTitle>Product and Revenue Performance</CardTitle>
                     <p className="text-sm text-muted-foreground">
                       View product-wise quantity sold and revenue by user and date
                     </p>
                   </div>
-                  <Popover open={productRevenueDateOpen} onOpenChange={setProductRevenueDateOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 gap-1">
-                        <CalendarIcon className="h-3.5 w-3.5" />
-                        <span className="text-xs">
-                          {format(productRevenueDateRange.from, 'MMM dd')} - {format(productRevenueDateRange.to, 'MMM dd, yyyy')}
-                        </span>
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="end">
-                      <Calendar
-                        mode="range"
-                        selected={{ from: productRevenueDateRange.from, to: productRevenueDateRange.to }}
-                        onSelect={(range) => {
-                          if (range?.from && range?.to) {
-                            setProductRevenueDateRange({ from: range.from, to: range.to });
-                            setProductRevenueDateOpen(false);
-                          }
-                        }}
-                        numberOfMonths={2}
-                      />
-                    </PopoverContent>
-                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
 
