@@ -99,7 +99,7 @@ serve(async (req) => {
     // If no auth_user_id linked, check if a user with this email already exists
     if (!authUserId) {
       const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-      const existingUser = existingUsers?.users?.find(u => u.email === distributorUser.email);
+      const existingUser = existingUsers?.users?.find((u: { email?: string }) => u.email === distributorUser.email);
       if (existingUser) {
         authUserId = existingUser.id;
         console.log('Found existing auth user by email:', authUserId);
