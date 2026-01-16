@@ -156,7 +156,7 @@ const Analytics = () => {
   });
   const [orderSummaryDateOpen, setOrderSummaryDateOpen] = useState(false);
 
-  // Productivity Report state
+  // Productivity Report state (legacy - per user)
   const [productivityUser, setProductivityUser] = useState<string>('');
   const [productivityData, setProductivityData] = useState<any[]>([]);
   const [productivityLoading, setProductivityLoading] = useState(false);
@@ -164,6 +164,15 @@ const Analytics = () => {
     from: subDays(new Date(), 7),
     to: new Date()
   });
+
+  // Productivity Summary by User state (horizontal bar chart - all users)
+  const [productivityByUserData, setProductivityByUserData] = useState<{ full_name: string; productive_visits: number; total_visits: number; productivity_percentage: number }[]>([]);
+  const [productivityByUserLoading, setProductivityByUserLoading] = useState(false);
+  const [productivitySummaryDateRange, setProductivitySummaryDateRange] = useState<{ from: Date; to: Date }>({
+    from: new Date('2026-01-01'),
+    to: new Date('2026-01-08')
+  });
+  const [productivitySummaryDateOpen, setProductivitySummaryDateOpen] = useState(false);
 
   // Product Revenue Performance state
   const [productRevenueUser, setProductRevenueUser] = useState<string>('');
@@ -576,6 +585,93 @@ const Analytics = () => {
   useEffect(() => {
     fetchOrderSummaryByUser();
   }, [orderSummaryDateRange]);
+
+  // Fetch Productivity Summary by User (all users - for horizontal bar chart)
+  const fetchProductivityByUser = async () => {
+    setProductivityByUserLoading(true);
+    try {
+      const fromDate = format(productivitySummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(productivitySummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Fetch all visits with productive/unproductive status in date range
+      const { data: visits, error: visitsError } = await supabase
+        .from('visits')
+        .select('id, user_id, status')
+        .in('status', ['productive', 'unproductive'])
+        .gte('planned_date', fromDate)
+        .lte('planned_date', toDate);
+
+      if (visitsError) {
+        console.error('Error fetching visits:', visitsError);
+        setProductivityByUserData([]);
+        return;
+      }
+
+      if (!visits || visits.length === 0) {
+        setProductivityByUserData([]);
+        return;
+      }
+
+      // Get unique user IDs
+      const userIds = [...new Set(visits.map(v => v.user_id).filter(Boolean))];
+      
+      // Fetch profiles for these users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create user ID to name map
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
+      // Group by user and calculate productivity metrics
+      const userMetrics: Record<string, { full_name: string; productive_visits: number; total_visits: number }> = {};
+      
+      visits.forEach((visit) => {
+        const userName = userNameMap[visit.user_id] || 'Unknown';
+        if (!userMetrics[userName]) {
+          userMetrics[userName] = {
+            full_name: userName,
+            productive_visits: 0,
+            total_visits: 0
+          };
+        }
+        userMetrics[userName].total_visits++;
+        if (visit.status === 'productive') {
+          userMetrics[userName].productive_visits++;
+        }
+      });
+
+      // Calculate productivity percentage and sort
+      const sortedData = Object.values(userMetrics)
+        .map(m => ({
+          ...m,
+          productivity_percentage: m.total_visits > 0 
+            ? Math.round((m.productive_visits / m.total_visits) * 100 * 100) / 100 
+            : 0
+        }))
+        .sort((a, b) => b.productivity_percentage - a.productivity_percentage);
+
+      setProductivityByUserData(sortedData);
+    } catch (error) {
+      console.error('Error in productivity summary by user:', error);
+      setProductivityByUserData([]);
+    } finally {
+      setProductivityByUserLoading(false);
+    }
+  };
+
+  // Auto-fetch productivity summary by user on mount and when date changes
+  useEffect(() => {
+    fetchProductivityByUser();
+  }, [productivitySummaryDateRange]);
 
   // Fetch Productivity Report data
   const fetchProductivityData = async () => {
@@ -2253,79 +2349,125 @@ const Analytics = () => {
 
               {/* Productivity Summary Section */}
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>Productivity Summary</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View visit productivity grouped by date
-                  </p>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle>Productivity Summary</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      View visit productivity grouped by user
+                    </p>
+                  </div>
+                  <Popover open={productivitySummaryDateOpen} onOpenChange={setProductivitySummaryDateOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 gap-1">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        <span className="text-xs">
+                          {format(productivitySummaryDateRange.from, 'MMM dd')} - {format(productivitySummaryDateRange.to, 'MMM dd, yyyy')}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <Calendar
+                        mode="range"
+                        selected={{ from: productivitySummaryDateRange.from, to: productivitySummaryDateRange.to }}
+                        onSelect={(range) => {
+                          if (range?.from && range?.to) {
+                            setProductivitySummaryDateRange({ from: range.from, to: range.to });
+                            setProductivitySummaryDateOpen(false);
+                          }
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
 
-                  {productivityLoading ? (
+                  {productivityByUserLoading ? (
                     <div className="text-center py-8">
                       <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
-                  ) : productivityData.length > 0 ? (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                            <th className="text-left p-3 text-sm font-medium">Planned Date</th>
-                            <th className="text-right p-3 text-sm font-medium">Productive Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Unproductive Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Total Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Productivity %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {productivityData.map((row, index) => (
-                            <tr key={index} className="border-b hover:bg-muted/30">
-                              <td className="p-3 text-sm font-medium">{row.full_name}</td>
-                              <td className="p-3 text-sm">{row.planned_date}</td>
-                              <td className="p-3 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
-                              <td className="p-3 text-sm text-right text-orange-600 font-medium">{row.unproductive_visits}</td>
-                              <td className="p-3 text-sm text-right font-medium">{row.total_visits}</td>
-                              <td className="p-3 text-sm text-right font-semibold">
-                                <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                                  {row.productivity_percentage}%
-                                </span>
+                  ) : productivityByUserData.length > 0 ? (
+                    <>
+                      {/* Horizontal Bar Chart */}
+                      <div className="h-[350px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={productivityByUserData}
+                            layout="vertical"
+                            margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} fontSize={10} />
+                            <YAxis type="category" dataKey="full_name" fontSize={10} width={90} />
+                            <Tooltip 
+                              formatter={(value: number, name: string) => {
+                                if (name === 'productivity_percentage') return [`${value}%`, 'Productivity'];
+                                if (name === 'productive_visits') return [value, 'Productive Visits'];
+                                if (name === 'total_visits') return [value, 'Total Visits'];
+                                return [value, name];
+                              }}
+                            />
+                            <Legend />
+                            <Bar 
+                              dataKey="productivity_percentage" 
+                              name="Productivity %" 
+                              fill="hsl(var(--primary))" 
+                              radius={[0, 4, 4, 0]}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* Data Table */}
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr className="border-b">
+                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
+                              <th className="text-right p-3 text-sm font-medium">Productive Visits</th>
+                              <th className="text-right p-3 text-sm font-medium">Total Visits</th>
+                              <th className="text-right p-3 text-sm font-medium">Productivity %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {productivityByUserData.map((row, index) => (
+                              <tr key={index} className="border-b hover:bg-muted/30">
+                                <td className="p-3 text-sm font-medium">{row.full_name}</td>
+                                <td className="p-3 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
+                                <td className="p-3 text-sm text-right font-medium">{row.total_visits}</td>
+                                <td className="p-3 text-sm text-right font-semibold">
+                                  <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                    {row.productivity_percentage}%
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-muted/30">
+                            <tr>
+                              <td className="p-3 text-sm font-semibold">Total</td>
+                              <td className="p-3 text-sm text-right font-bold text-green-600">
+                                {productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0)}
+                              </td>
+                              <td className="p-3 text-sm text-right font-bold">
+                                {productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0)}
+                              </td>
+                              <td className="p-3 text-sm text-right font-bold text-primary">
+                                {(() => {
+                                  const totalProductive = productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0);
+                                  const totalVisits = productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0);
+                                  return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
+                                })()}%
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-muted/30">
-                          <tr>
-                            <td className="p-3 text-sm font-semibold">Total</td>
-                            <td className="p-3"></td>
-                            <td className="p-3 text-sm text-right font-bold text-green-600">
-                              {productivityData.reduce((sum, row) => sum + row.productive_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold text-orange-600">
-                              {productivityData.reduce((sum, row) => sum + row.unproductive_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold">
-                              {productivityData.reduce((sum, row) => sum + row.total_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold text-primary">
-                              {(() => {
-                                const totalProductive = productivityData.reduce((sum, row) => sum + row.productive_visits, 0);
-                                const totalVisits = productivityData.reduce((sum, row) => sum + row.total_visits, 0);
-                                return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
-                              })()}%
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  ) : productivityUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
-                    </div>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
