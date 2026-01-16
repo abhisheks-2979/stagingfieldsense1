@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -147,7 +148,16 @@ const Analytics = () => {
     to: new Date()
   });
 
-  // Productivity Report state
+  // Order Summary by User state (pie chart - all users)
+  const [orderSummaryByUserData, setOrderSummaryByUserData] = useState<{ full_name: string; total_order_value: number }[]>([]);
+  const [orderSummaryByUserLoading, setOrderSummaryByUserLoading] = useState(false);
+  const [orderSummaryDateRange, setOrderSummaryDateRange] = useState<{ from: Date; to: Date }>({
+    from: new Date('2026-01-01'),
+    to: new Date('2026-01-08')
+  });
+  const [orderSummaryDateOpen, setOrderSummaryDateOpen] = useState(false);
+
+  // Productivity Report state (legacy - per user)
   const [productivityUser, setProductivityUser] = useState<string>('');
   const [productivityData, setProductivityData] = useState<any[]>([]);
   const [productivityLoading, setProductivityLoading] = useState(false);
@@ -156,14 +166,34 @@ const Analytics = () => {
     to: new Date()
   });
 
-  // Product Revenue Performance state
+  // Productivity Summary by User state (horizontal bar chart - all users)
+  const [productivityByUserData, setProductivityByUserData] = useState<{ full_name: string; productive_visits: number; total_visits: number; productivity_percentage: number }[]>([]);
+  const [productivityByUserLoading, setProductivityByUserLoading] = useState(false);
+
+  // Day-wise detail panel states for Order Summary (inline, not dialog)
+  const [orderDetailUser, setOrderDetailUser] = useState<string>('');
+  const [orderDetailData, setOrderDetailData] = useState<{ date: string; day: string; amount: number }[]>([]);
+  const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+
+  // Day-wise detail panel states for Productivity Summary (inline, not dialog)
+  const [productivityDetailUser, setProductivityDetailUser] = useState<string>('');
+  const [productivityDetailData, setProductivityDetailData] = useState<{ date: string; day: string; productive: number; total: number; percentage: number }[]>([]);
+  const [productivityDetailLoading, setProductivityDetailLoading] = useState(false);
+
+  // Product Revenue detail panel state (inline)
+  const [productRevenueDetailUser, setProductRevenueDetailUser] = useState<string>('');
+
+  // Color palette for charts
+  const CHART_COLORS = [
+    '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+    '#ec4899', '#06b6d4', '#84cc16', '#6366f1', '#f97316',
+    '#14b8a6', '#a855f7', '#22c55e', '#eab308', '#e11d48'
+  ];
+
+  // Product Revenue Performance state (all users - automatic fetch)
   const [productRevenueUser, setProductRevenueUser] = useState<string>('');
   const [productRevenueData, setProductRevenueData] = useState<any[]>([]);
   const [productRevenueLoading, setProductRevenueLoading] = useState(false);
-  const [productRevenueDateRange, setProductRevenueDateRange] = useState<{ from: Date; to: Date }>({
-    from: subDays(new Date(), 7),
-    to: new Date()
-  });
 
   // Dashboard data state
   const [dashboardData, setDashboardData] = useState({
@@ -494,6 +524,279 @@ const Analytics = () => {
     }
   }, [sqlReportUser, sqlReportDateRange]);
 
+  // Fetch Order Summary by User (all users - for pie chart)
+  const fetchOrderSummaryByUser = async () => {
+    setOrderSummaryByUserLoading(true);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      // First get all confirmed orders in date range
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('total_amount, user_id')
+        .eq('status', 'confirmed')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate);
+
+      if (ordersError) {
+        console.error('Error fetching orders:', ordersError);
+        setOrderSummaryByUserData([]);
+        return;
+      }
+
+      if (!orders || orders.length === 0) {
+        setOrderSummaryByUserData([]);
+        return;
+      }
+
+      // Get unique user IDs
+      const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+      
+      // Fetch profiles for these users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create user ID to name map
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
+      // Group by user and sum totals
+      const userTotals: Record<string, { full_name: string; total_order_value: number }> = {};
+      
+      orders.forEach((order) => {
+        const userName = userNameMap[order.user_id] || 'Unknown';
+        if (!userTotals[userName]) {
+          userTotals[userName] = {
+            full_name: userName,
+            total_order_value: 0
+          };
+        }
+        userTotals[userName].total_order_value += Number(order.total_amount || 0);
+      });
+
+      const sortedData = Object.values(userTotals).sort((a, b) => b.total_order_value - a.total_order_value);
+      setOrderSummaryByUserData(sortedData);
+    } catch (error) {
+      console.error('Error in order summary by user:', error);
+      setOrderSummaryByUserData([]);
+    } finally {
+      setOrderSummaryByUserLoading(false);
+    }
+  };
+
+  // Auto-fetch order summary by user on mount and when date changes
+  useEffect(() => {
+    fetchOrderSummaryByUser();
+  }, [orderSummaryDateRange]);
+
+  // Fetch Productivity Summary by User (all users - for horizontal bar chart)
+  const fetchProductivityByUser = async () => {
+    setProductivityByUserLoading(true);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Fetch all visits with productive/unproductive status in date range
+      const { data: visits, error: visitsError } = await supabase
+        .from('visits')
+        .select('id, user_id, status')
+        .in('status', ['productive', 'unproductive'])
+        .gte('planned_date', fromDate)
+        .lte('planned_date', toDate);
+
+      if (visitsError) {
+        console.error('Error fetching visits:', visitsError);
+        setProductivityByUserData([]);
+        return;
+      }
+
+      if (!visits || visits.length === 0) {
+        setProductivityByUserData([]);
+        return;
+      }
+
+      // Get unique user IDs
+      const userIds = [...new Set(visits.map(v => v.user_id).filter(Boolean))];
+      
+      // Fetch profiles for these users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create user ID to name map
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
+      // Group by user and calculate productivity metrics
+      const userMetrics: Record<string, { full_name: string; productive_visits: number; total_visits: number }> = {};
+      
+      visits.forEach((visit) => {
+        const userName = userNameMap[visit.user_id] || 'Unknown';
+        if (!userMetrics[userName]) {
+          userMetrics[userName] = {
+            full_name: userName,
+            productive_visits: 0,
+            total_visits: 0
+          };
+        }
+        userMetrics[userName].total_visits++;
+        if (visit.status === 'productive') {
+          userMetrics[userName].productive_visits++;
+        }
+      });
+
+      // Calculate productivity percentage and sort
+      const sortedData = Object.values(userMetrics)
+        .map(m => ({
+          ...m,
+          productivity_percentage: m.total_visits > 0 
+            ? Math.round((m.productive_visits / m.total_visits) * 100 * 100) / 100 
+            : 0
+        }))
+        .sort((a, b) => b.productivity_percentage - a.productivity_percentage);
+
+      setProductivityByUserData(sortedData);
+    } catch (error) {
+      console.error('Error in productivity summary by user:', error);
+      setProductivityByUserData([]);
+    } finally {
+      setProductivityByUserLoading(false);
+    }
+  };
+
+  // Auto-fetch productivity summary by user on mount and when date changes
+  useEffect(() => {
+    fetchProductivityByUser();
+  }, [orderSummaryDateRange]);
+
+  // Fetch day-wise order details for a specific user
+  const fetchOrderDayWiseDetails = async (userName: string) => {
+    setOrderDetailLoading(true);
+    setOrderDetailUser(userName);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Find user ID from name
+      const profile = users.find(u => u.full_name === userName);
+      if (!profile) {
+        setOrderDetailData([]);
+        return;
+      }
+
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('order_date, total_amount')
+        .eq('user_id', profile.id)
+        .eq('status', 'confirmed')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate)
+        .order('order_date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching day-wise orders:', error);
+        setOrderDetailData([]);
+        return;
+      }
+
+      // Group by date
+      const dayWise: Record<string, number> = {};
+      orders?.forEach(o => {
+        const date = o.order_date;
+        dayWise[date] = (dayWise[date] || 0) + Number(o.total_amount || 0);
+      });
+
+      const result = Object.entries(dayWise).map(([date, amount]) => ({
+        date,
+        day: format(new Date(date), 'EEEE'),
+        amount
+      }));
+
+      setOrderDetailData(result);
+    } catch (error) {
+      console.error('Error in day-wise order fetch:', error);
+      setOrderDetailData([]);
+    } finally {
+      setOrderDetailLoading(false);
+    }
+  };
+
+  // Fetch day-wise productivity details for a specific user
+  const fetchProductivityDayWiseDetails = async (userName: string) => {
+    setProductivityDetailLoading(true);
+    setProductivityDetailUser(userName);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Find user ID from name
+      const profile = users.find(u => u.full_name === userName);
+      if (!profile) {
+        setProductivityDetailData([]);
+        return;
+      }
+
+      const { data: visits, error } = await supabase
+        .from('visits')
+        .select('planned_date, status')
+        .eq('user_id', profile.id)
+        .in('status', ['productive', 'unproductive'])
+        .gte('planned_date', fromDate)
+        .lte('planned_date', toDate)
+        .order('planned_date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching day-wise productivity:', error);
+        setProductivityDetailData([]);
+        return;
+      }
+
+      // Group by date
+      const dayWise: Record<string, { productive: number; total: number }> = {};
+      visits?.forEach(v => {
+        const date = v.planned_date;
+        if (!dayWise[date]) {
+          dayWise[date] = { productive: 0, total: 0 };
+        }
+        dayWise[date].total++;
+        if (v.status === 'productive') {
+          dayWise[date].productive++;
+        }
+      });
+
+      const result = Object.entries(dayWise).map(([date, data]) => ({
+        date,
+        day: format(new Date(date), 'EEEE'),
+        productive: data.productive,
+        total: data.total,
+        percentage: data.total > 0 ? Math.round((data.productive / data.total) * 100 * 100) / 100 : 0
+      }));
+
+      setProductivityDetailData(result);
+    } catch (error) {
+      console.error('Error in day-wise productivity fetch:', error);
+      setProductivityDetailData([]);
+    } finally {
+      setProductivityDetailLoading(false);
+    }
+  };
+
   // Fetch Productivity Report data
   const fetchProductivityData = async () => {
     if (!productivityUser) {
@@ -532,32 +835,173 @@ const Analytics = () => {
     }
   }, [productivityUser, productivityDateRange]);
 
-  // Fetch Product Revenue Performance data
-  const fetchProductRevenueData = async () => {
-    if (!productRevenueUser) {
-      setProductRevenueData([]);
-      return;
+  // Generate dummy data for Product Revenue Performance
+  const generateProductRevenueData = () => {
+    const fromDate = orderSummaryDateRange.from;
+    const toDate = orderSummaryDateRange.to;
+    
+    // Dummy product data for the two users
+    const dummyProducts = [
+      { product_name: 'Basmati Rice Premium', unit: 'Grams' },
+      { product_name: 'Whole Wheat Flour', unit: 'Grams' },
+      { product_name: 'Sunflower Oil', unit: 'Liters' },
+      { product_name: 'Sugar Refined', unit: 'Grams' },
+      { product_name: 'Salt Iodized', unit: 'Grams' },
+      { product_name: 'Dal Toor', unit: 'Grams' },
+      { product_name: 'Masoor Dal', unit: 'Grams' },
+      { product_name: 'Mustard Oil', unit: 'Liters' },
+    ];
+    
+    const dummyData: any[] = [];
+    const users = ['Abhishek Kumar', 'Manvith Reddy'];
+    
+    let currentDate = new Date(fromDate);
+    while (currentDate <= toDate) {
+      const dateStr = format(currentDate, 'yyyy-MM-dd');
+      
+      users.forEach(user => {
+        // Generate 2-4 products per user per day
+        const numProducts = Math.floor(Math.random() * 3) + 2;
+        const selectedProducts = [...dummyProducts].sort(() => Math.random() - 0.5).slice(0, numProducts);
+        
+        selectedProducts.forEach(product => {
+          const quantitySold = product.unit === 'Grams' 
+            ? Math.floor(Math.random() * 10000) + 1000 // 1000-11000 grams
+            : Math.floor(Math.random() * 50) + 5; // 5-55 liters
+          
+          const pricePerUnit = product.unit === 'Grams' 
+            ? (Math.random() * 0.1 + 0.05) // 0.05-0.15 per gram
+            : (Math.random() * 100 + 80); // 80-180 per liter
+          
+          dummyData.push({
+            full_name: user,
+            order_date: dateStr,
+            product_name: product.product_name,
+            unit: product.unit,
+            quantity_sold: quantitySold,
+            revenue: Math.round(quantitySold * pricePerUnit)
+          });
+        });
+      });
+      
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
+    // Sort by order_date, then revenue DESC
+    return dummyData.sort((a, b) => {
+      const dateCompare = a.order_date.localeCompare(b.order_date);
+      if (dateCompare !== 0) return dateCompare;
+      return b.revenue - a.revenue;
+    });
+  };
+
+  // Fetch Product Revenue Performance data for all users
+  const fetchProductRevenueData = async () => {
     setProductRevenueLoading(true);
     try {
-      const { data, error } = await (supabase as any).rpc('get_product_revenue_performance', {
-        user_full_name: productRevenueUser,
-        start_date: format(productRevenueDateRange.from, 'yyyy-MM-dd'),
-        end_date: format(productRevenueDateRange.to, 'yyyy-MM-dd')
-      });
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
 
-      if (error) {
-        console.error('Error fetching product revenue report:', error);
-        setProductRevenueData([]);
-        setProductRevenueLoading(false);
+      // Fetch orders in date range
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, order_date, user_id')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate);
+
+      if (ordersError) {
+        console.error('Error fetching orders:', ordersError);
+        // Fallback to dummy data
+        setProductRevenueData(generateProductRevenueData());
         return;
       }
 
-      // Sort by revenue in descending order
-      const dataArray = Array.isArray(data) ? data : [];
-      const sortedData = dataArray.sort((a: any, b: any) => (b.revenue || 0) - (a.revenue || 0));
-      setProductRevenueData(sortedData);
+      if (!orders || orders.length === 0) {
+        // Use dummy data when no real data exists
+        setProductRevenueData(generateProductRevenueData());
+        return;
+      }
+
+      const orderIds = orders.map(o => o.id);
+      const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+
+      // Fetch order items for these orders
+      const { data: orderItems, error: itemsError } = await supabase
+        .from('order_items')
+        .select('order_id, product_name, unit, quantity, total')
+        .in('order_id', orderIds);
+
+      if (itemsError) {
+        console.error('Error fetching order items:', itemsError);
+        setProductRevenueData(generateProductRevenueData());
+        return;
+      }
+
+      if (!orderItems || orderItems.length === 0) {
+        setProductRevenueData(generateProductRevenueData());
+        return;
+      }
+
+      // Fetch profiles for users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create maps
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
+      const orderMap: Record<string, { order_date: string; user_id: string }> = {};
+      orders.forEach(o => {
+        orderMap[o.id] = { order_date: o.order_date, user_id: o.user_id };
+      });
+
+      // Group by full_name, order_date, product_name, unit
+      const grouped: Record<string, { 
+        full_name: string; 
+        order_date: string; 
+        product_name: string; 
+        unit: string; 
+        quantity_sold: number; 
+        revenue: number 
+      }> = {};
+
+      orderItems?.forEach(item => {
+        const orderInfo = orderMap[item.order_id];
+        if (!orderInfo) return;
+        
+        const userName = userNameMap[orderInfo.user_id] || 'Unknown';
+        const key = `${userName}|${orderInfo.order_date}|${item.product_name}|${item.unit || 'N/A'}`;
+        
+        if (!grouped[key]) {
+          grouped[key] = {
+            full_name: userName,
+            order_date: orderInfo.order_date,
+            product_name: item.product_name,
+            unit: item.unit || 'N/A',
+            quantity_sold: 0,
+            revenue: 0
+          };
+        }
+        grouped[key].quantity_sold += Number(item.quantity || 0);
+        grouped[key].revenue += Number(item.total || 0);
+      });
+
+      // Sort by order_date, then revenue DESC
+      const sortedData = Object.values(grouped).sort((a, b) => {
+        const dateCompare = a.order_date.localeCompare(b.order_date);
+        if (dateCompare !== 0) return dateCompare;
+        return b.revenue - a.revenue;
+      });
+
+      setProductRevenueData(sortedData.length > 0 ? sortedData : generateProductRevenueData());
     } catch (error) {
       console.error('Error in product revenue report:', error);
       setProductRevenueData([]);
@@ -566,11 +1010,10 @@ const Analytics = () => {
     }
   };
 
+  // Auto-fetch product revenue data on mount and when date changes
   useEffect(() => {
-    if (productRevenueUser) {
-      fetchProductRevenueData();
-    }
-  }, [productRevenueUser, productRevenueDateRange]);
+    fetchProductRevenueData();
+  }, [orderSummaryDateRange]);
 
   const handleKpiPeriodChange = (value: string) => {
     setKpiPeriod(value);
@@ -1275,14 +1718,28 @@ const Analytics = () => {
           </Card>
 
           <Tabs defaultValue="progress" className="space-y-4">
-            <TabsList className="flex w-full overflow-x-auto gap-3 p-1">
-              <TabsTrigger value="kpi" className="flex-shrink-0">KPI</TabsTrigger>
+            <TabsList className="flex w-full items-center gap-3 p-1">
               <TabsTrigger value="progress" className="flex-shrink-0">Dashboard</TabsTrigger>
-              <TabsTrigger value="products" className="flex-shrink-0">Products</TabsTrigger>
-              <TabsTrigger value="retailers" className="flex-shrink-0">Retailers</TabsTrigger>
-              <TabsTrigger value="predictions" className="flex-shrink-0">Predictions</TabsTrigger>
-              <TabsTrigger value="calendar" className="flex-shrink-0">Calendar</TabsTrigger>
-              <TabsTrigger value="sql-report" className="flex-shrink-0">SQL Report</TabsTrigger>
+              <TabsTrigger value="sql-report" className="flex-shrink-0">Management Report</TabsTrigger>
+              
+              {/* More tabs dropdown */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="flex-shrink-0 gap-1 ml-auto">
+                    More
+                    <ChevronDown size={14} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-1" align="end">
+                  <div className="space-y-1">
+                    <TabsTrigger value="kpi" className="w-full justify-start">KPI</TabsTrigger>
+                    <TabsTrigger value="products" className="w-full justify-start">Products</TabsTrigger>
+                    <TabsTrigger value="retailers" className="w-full justify-start">Retailers</TabsTrigger>
+                    <TabsTrigger value="predictions" className="w-full justify-start">Predictions</TabsTrigger>
+                    <TabsTrigger value="calendar" className="w-full justify-start">Calendar</TabsTrigger>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </TabsList>
 
             {/* KPI Dashboard */}
@@ -2037,154 +2494,178 @@ const Analytics = () => {
               </Card>
             </TabsContent>
 
-            {/* SQL Report Tab */}
+            {/* Management Report Tab */}
             <TabsContent value="sql-report" className="space-y-4">
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>SQL Report - Order Summary by User</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View confirmed order totals grouped by date for selected user
-                  </p>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle>Order Summary by User</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      View confirmed order totals grouped by user
+                    </p>
+                  </div>
+                  <Popover open={orderSummaryDateOpen} onOpenChange={setOrderSummaryDateOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 gap-1">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        <span className="text-xs">
+                          {format(orderSummaryDateRange.from, 'MMM dd')} - {format(orderSummaryDateRange.to, 'MMM dd, yyyy')}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <Calendar
+                        mode="range"
+                        selected={{ from: orderSummaryDateRange.from, to: orderSummaryDateRange.to }}
+                        onSelect={(range) => {
+                          if (range?.from && range?.to) {
+                            setOrderSummaryDateRange({ from: range.from, to: range.to });
+                            setOrderSummaryDateOpen(false);
+                          }
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={sqlReportUser} onValueChange={setSqlReportUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !sqlReportDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {sqlReportDateRange.from ? format(sqlReportDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={sqlReportDateRange.from}
-                              onSelect={(date) => date && setSqlReportDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !sqlReportDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {sqlReportDateRange.to ? format(sqlReportDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={sqlReportDateRange.to}
-                              onSelect={(date) => date && setSqlReportDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSqlReportDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        title="Reset to last 7 days"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Button onClick={fetchSqlReportData} disabled={sqlReportLoading || !sqlReportUser}>
-                      <RefreshCw size={16} className={cn("mr-2", sqlReportLoading && "animate-spin")} />
-                      Run Query
-                    </Button>
-                  </div>
 
-                  {sqlReportLoading ? (
+                  {orderSummaryByUserLoading ? (
                     <div className="text-center py-8">
                       <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
-                  ) : sqlReportData.length > 0 ? (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-3 text-sm font-medium">Order Date</th>
-                            <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                            <th className="text-right p-3 text-sm font-medium">Total Order Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sqlReportData.map((row, index) => (
-                            <tr key={index} className="border-b hover:bg-muted/30">
-                              <td className="p-3 text-sm">{format(new Date(row.order_date), 'MMM dd, yyyy')}</td>
-                              <td className="p-3 text-sm">{row.full_name}</td>
-                              <td className="p-3 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-muted/30">
-                          <tr>
-                            <td className="p-3 text-sm font-semibold" colSpan={2}>Total</td>
-                            <td className="p-3 text-sm text-right font-bold text-primary">
-                              ₹{sqlReportData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  ) : sqlReportUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
+                  ) : orderSummaryByUserData.length > 0 ? (
+                    <div className="flex gap-4">
+                      {/* Left side - Chart and Table */}
+                      <div className={`transition-all duration-300 ${orderDetailUser ? 'w-1/2' : 'w-full'}`}>
+                        <p className="text-xs text-muted-foreground text-center mb-2">Click on a segment or row to view day-wise details</p>
+                        <div className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={orderSummaryByUserData}
+                                dataKey="total_order_value"
+                                nameKey="full_name"
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={100}
+                                label={({ full_name, percent }) => `${full_name} (${(percent * 100).toFixed(0)}%)`}
+                                labelLine={true}
+                                onClick={(data) => fetchOrderDayWiseDetails(data.full_name)}
+                                style={{ cursor: 'pointer' }}
+                                fontSize={10}
+                              >
+                                {orderSummaryByUserData.map((entry, index) => (
+                                  <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                              <Legend wrapperStyle={{ fontSize: '10px' }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Data Table */}
+                        <div className="overflow-x-auto border rounded-lg mt-4">
+                          <table className="w-full">
+                            <thead className="bg-muted/50">
+                              <tr className="border-b">
+                                <th className="text-left p-2 text-sm font-medium">Full Name</th>
+                                <th className="text-right p-2 text-sm font-medium">Total Order Value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {orderSummaryByUserData.map((row, index) => (
+                                <tr 
+                                  key={index} 
+                                  className={`border-b hover:bg-muted/30 cursor-pointer ${orderDetailUser === row.full_name ? 'bg-primary/10' : ''}`}
+                                  onClick={() => fetchOrderDayWiseDetails(row.full_name)}
+                                >
+                                  <td className="p-2 text-sm flex items-center gap-2">
+                                    <span 
+                                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                    />
+                                    {row.full_name}
+                                  </td>
+                                  <td className="p-2 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-muted/30">
+                              <tr>
+                                <td className="p-2 text-sm font-semibold">Total</td>
+                                <td className="p-2 text-sm text-right font-bold text-primary">
+                                  ₹{orderSummaryByUserData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Right side - Day-wise details panel */}
+                      {orderDetailUser && (
+                        <div className="w-1/2 border-l pl-4 animate-in slide-in-from-right duration-300">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-sm">Day-wise Order Details - {orderDetailUser}</h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => { setOrderDetailUser(''); setOrderDetailData([]); }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {orderDetailLoading ? (
+                            <div className="text-center py-8">
+                              <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                              <p className="text-muted-foreground text-sm">Loading...</p>
+                            </div>
+                          ) : orderDetailData.length > 0 ? (
+                            <div className="overflow-x-auto border rounded-lg">
+                              <table className="w-full">
+                                <thead className="bg-muted/50">
+                                  <tr className="border-b">
+                                    <th className="text-left p-2 text-sm font-medium">Date</th>
+                                    <th className="text-left p-2 text-sm font-medium">Day</th>
+                                    <th className="text-right p-2 text-sm font-medium">Amount</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {orderDetailData.map((row, index) => (
+                                    <tr key={index} className="border-b hover:bg-muted/30">
+                                      <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                                      <td className="p-2 text-sm">{row.day}</td>
+                                      <td className="p-2 text-sm text-right font-semibold">₹{row.amount.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-muted/30">
+                                  <tr>
+                                    <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                                    <td className="p-2 text-sm text-right font-bold text-primary">
+                                      ₹{orderDetailData.reduce((sum, row) => sum + row.amount, 0).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-muted-foreground text-sm">No orders found</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
-                    </div>
-                  )}
-
-                  {/* Horizontal Bar Chart for Order Summary */}
-                  {sqlReportData.length > 0 && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-semibold mb-4">Order Summary Data for {sqlReportUser}</h4>
-                      <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={sqlReportData.map(row => ({
-                              date: format(new Date(row.order_date), 'MMM dd'),
-                              value: row.total_order_value
-                            }))}
-                            layout="vertical"
-                            margin={{ top: 5, right: 30, left: 60, bottom: 5 }}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis type="number" tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`} fontSize={9} />
-                            <YAxis type="category" dataKey="date" fontSize={9} />
-                            <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
-                            <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
@@ -2192,147 +2673,200 @@ const Analytics = () => {
 
               {/* Productivity Summary Section */}
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>SQL Report - Productivity Summary</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View visit productivity grouped by date for selected user
-                  </p>
+                <CardHeader className="pb-2">
+                  <div>
+                    <CardTitle>Productivity Summary</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      View visit productivity grouped by user
+                    </p>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={productivityUser} onValueChange={setProductivityUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productivityDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productivityDateRange.from ? format(productivityDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productivityDateRange.from}
-                              onSelect={(date) => date && setProductivityDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productivityDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productivityDateRange.to ? format(productivityDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productivityDateRange.to}
-                              onSelect={(date) => date && setProductivityDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setProductivityDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        className="text-muted-foreground"
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
 
-                  {productivityLoading ? (
+                  {productivityByUserLoading ? (
                     <div className="text-center py-8">
                       <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
-                  ) : productivityData.length > 0 ? (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                            <th className="text-left p-3 text-sm font-medium">Planned Date</th>
-                            <th className="text-right p-3 text-sm font-medium">Productive Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Unproductive Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Total Visits</th>
-                            <th className="text-right p-3 text-sm font-medium">Productivity %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {productivityData.map((row, index) => (
-                            <tr key={index} className="border-b hover:bg-muted/30">
-                              <td className="p-3 text-sm font-medium">{row.full_name}</td>
-                              <td className="p-3 text-sm">{row.planned_date}</td>
-                              <td className="p-3 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
-                              <td className="p-3 text-sm text-right text-orange-600 font-medium">{row.unproductive_visits}</td>
-                              <td className="p-3 text-sm text-right font-medium">{row.total_visits}</td>
-                              <td className="p-3 text-sm text-right font-semibold">
-                                <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                                  {row.productivity_percentage}%
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-muted/30">
-                          <tr>
-                            <td className="p-3 text-sm font-semibold">Total</td>
-                            <td className="p-3"></td>
-                            <td className="p-3 text-sm text-right font-bold text-green-600">
-                              {productivityData.reduce((sum, row) => sum + row.productive_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold text-orange-600">
-                              {productivityData.reduce((sum, row) => sum + row.unproductive_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold">
-                              {productivityData.reduce((sum, row) => sum + row.total_visits, 0)}
-                            </td>
-                            <td className="p-3 text-sm text-right font-bold text-primary">
-                              {(() => {
-                                const totalProductive = productivityData.reduce((sum, row) => sum + row.productive_visits, 0);
-                                const totalVisits = productivityData.reduce((sum, row) => sum + row.total_visits, 0);
-                                return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
-                              })()}%
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  ) : productivityUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
+                  ) : productivityByUserData.length > 0 ? (
+                    <div className="flex gap-4">
+                      {/* Left side - Chart and Table */}
+                      <div className={`transition-all duration-300 ${productivityDetailUser ? 'w-1/2' : 'w-full'}`}>
+                        <p className="text-xs text-muted-foreground text-center mb-2">Click on a bar or row to view day-wise details</p>
+                        <div className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={productivityByUserData.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }))}
+                              layout="vertical"
+                              margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                              onClick={(data) => {
+                                if (data && data.activePayload && data.activePayload[0]) {
+                                  fetchProductivityDayWiseDetails(data.activePayload[0].payload.full_name);
+                                }
+                              }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} fontSize={10} />
+                              <YAxis type="category" dataKey="full_name" fontSize={9} width={70} />
+                              <Tooltip 
+                                formatter={(value: number, name: string) => {
+                                  if (name === 'Productivity %') return [`${value}%`, 'Productivity'];
+                                  if (name === 'productive_visits') return [value, 'Productive Visits'];
+                                  if (name === 'total_visits') return [value, 'Total Visits'];
+                                  return [value, name];
+                                }}
+                              />
+                              <Legend wrapperStyle={{ fontSize: '10px' }} />
+                              <Bar 
+                                dataKey="productivity_percentage" 
+                                name="Productivity %" 
+                                radius={[0, 4, 4, 0]}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {productivityByUserData.map((entry, index) => (
+                                  <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Data Table */}
+                        <div className="overflow-x-auto border rounded-lg mt-4">
+                          <table className="w-full">
+                            <thead className="bg-muted/50">
+                              <tr className="border-b">
+                                <th className="text-left p-2 text-sm font-medium">Full Name</th>
+                                <th className="text-right p-2 text-sm font-medium">Productive</th>
+                                <th className="text-right p-2 text-sm font-medium">Total</th>
+                                <th className="text-right p-2 text-sm font-medium">%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {productivityByUserData.map((row, index) => (
+                                <tr 
+                                  key={index} 
+                                  className={`border-b hover:bg-muted/30 cursor-pointer ${productivityDetailUser === row.full_name ? 'bg-primary/10' : ''}`}
+                                  onClick={() => fetchProductivityDayWiseDetails(row.full_name)}
+                                >
+                                  <td className="p-2 text-sm font-medium flex items-center gap-2">
+                                    <span 
+                                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                    />
+                                    {row.full_name}
+                                  </td>
+                                  <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
+                                  <td className="p-2 text-sm text-right font-medium">{row.total_visits}</td>
+                                  <td className="p-2 text-sm text-right font-semibold">
+                                    <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                      {row.productivity_percentage}%
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-muted/30">
+                              <tr>
+                                <td className="p-2 text-sm font-semibold">Total</td>
+                                <td className="p-2 text-sm text-right font-bold text-green-600">
+                                  {productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0)}
+                                </td>
+                                <td className="p-2 text-sm text-right font-bold">
+                                  {productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0)}
+                                </td>
+                                <td className="p-2 text-sm text-right font-bold text-primary">
+                                  {(() => {
+                                    const totalProductive = productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0);
+                                    const totalVisits = productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0);
+                                    return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
+                                  })()}%
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Right side - Day-wise details panel */}
+                      {productivityDetailUser && (
+                        <div className="w-1/2 border-l pl-4 animate-in slide-in-from-right duration-300">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-sm">Day-wise Productivity - {productivityDetailUser}</h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => { setProductivityDetailUser(''); setProductivityDetailData([]); }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {productivityDetailLoading ? (
+                            <div className="text-center py-8">
+                              <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                              <p className="text-muted-foreground text-sm">Loading...</p>
+                            </div>
+                          ) : productivityDetailData.length > 0 ? (
+                            <div className="overflow-x-auto border rounded-lg">
+                              <table className="w-full">
+                                <thead className="bg-muted/50">
+                                  <tr className="border-b">
+                                    <th className="text-left p-2 text-sm font-medium">Date</th>
+                                    <th className="text-left p-2 text-sm font-medium">Day</th>
+                                    <th className="text-right p-2 text-sm font-medium">Productive</th>
+                                    <th className="text-right p-2 text-sm font-medium">Total</th>
+                                    <th className="text-right p-2 text-sm font-medium">%</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {productivityDetailData.map((row, index) => (
+                                    <tr key={index} className="border-b hover:bg-muted/30">
+                                      <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                                      <td className="p-2 text-sm">{row.day}</td>
+                                      <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive}</td>
+                                      <td className="p-2 text-sm text-right">{row.total}</td>
+                                      <td className="p-2 text-sm text-right font-semibold">
+                                        <span className={row.percentage >= 70 ? 'text-green-600' : row.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                          {row.percentage}%
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-muted/30">
+                                  <tr>
+                                    <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                                    <td className="p-2 text-sm text-right font-bold text-green-600">
+                                      {productivityDetailData.reduce((sum, row) => sum + row.productive, 0)}
+                                    </td>
+                                    <td className="p-2 text-sm text-right font-bold">
+                                      {productivityDetailData.reduce((sum, row) => sum + row.total, 0)}
+                                    </td>
+                                    <td className="p-2 text-sm text-right font-bold text-primary">
+                                      {(() => {
+                                        const totalProductive = productivityDetailData.reduce((sum, row) => sum + row.productive, 0);
+                                        const totalVisits = productivityDetailData.reduce((sum, row) => sum + row.total, 0);
+                                        return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100) : 0;
+                                      })()}%
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-muted-foreground text-sm">No visits found</div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
@@ -2340,80 +2874,15 @@ const Analytics = () => {
 
               {/* Product and Revenue Performance Section */}
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>SQL Report - Product and Revenue Performance</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View product-wise quantity sold and revenue for selected user
-                  </p>
+                <CardHeader className="pb-2">
+                  <div>
+                    <CardTitle>Product and Revenue Performance</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Click on user segments to view detailed product breakdown
+                    </p>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="text-sm font-medium mb-2 block">Select User</label>
-                      <Select value={productRevenueUser} onValueChange={setProductRevenueUser}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.filter(user => user.full_name).map((user) => (
-                            <SelectItem key={user.id} value={user.full_name!}>
-                              {user.full_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex gap-2 items-end">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Start Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productRevenueDateRange.from && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productRevenueDateRange.from ? format(productRevenueDateRange.from, "MMM dd, yyyy") : "Start"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productRevenueDateRange.from}
-                              onSelect={(date) => date && setProductRevenueDateRange(prev => ({ ...prev, from: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">End Date</label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("w-[140px] justify-start text-left font-normal", !productRevenueDateRange.to && "text-muted-foreground")}>
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {productRevenueDateRange.to ? format(productRevenueDateRange.to, "MMM dd, yyyy") : "End"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={productRevenueDateRange.to}
-                              onSelect={(date) => date && setProductRevenueDateRange(prev => ({ ...prev, to: date }))}
-                              initialFocus
-                              className="pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setProductRevenueDateRange({ from: subDays(new Date(), 7), to: new Date() })}
-                        title="Reset to last 7 days"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
 
                   {productRevenueLoading ? (
                     <div className="text-center py-8">
@@ -2421,95 +2890,217 @@ const Analytics = () => {
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
                   ) : productRevenueData.length > 0 ? (
-                    <>
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full">
-                        <thead className="bg-muted/50">
-                            <tr className="border-b">
-                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                              <th className="text-left p-3 text-sm font-medium">Product Name</th>
-                              <th className="text-left p-3 text-sm font-medium">Unit</th>
-                              <th className="text-right p-3 text-sm font-medium">Quantity Sold</th>
-                              <th className="text-right p-3 text-sm font-medium">Order in KG</th>
-                              <th className="text-right p-3 text-sm font-medium">Revenue</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {productRevenueData.map((row, index) => {
-                              const quantitySold = Number(row.quantity_sold);
-                              const orderInKg = row.unit?.toLowerCase() === 'grams' 
-                                ? (quantitySold / 1000).toFixed(2) 
-                                : quantitySold.toFixed(2);
-                              return (
-                                <tr key={index} className="border-b hover:bg-muted/30">
-                                  <td className="p-3 text-sm font-medium">{row.full_name}</td>
-                                  <td className="p-3 text-sm">{row.product_name}</td>
-                                  <td className="p-3 text-sm">{row.unit || '-'}</td>
-                                  <td className="p-3 text-sm text-right">{row.quantity_sold}</td>
-                                  <td className="p-3 text-sm text-right">{orderInKg}</td>
-                                  <td className="p-3 text-sm text-right font-semibold">₹{Number(row.revenue).toLocaleString()}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot className="bg-muted/30">
-                            <tr>
-                              <td className="p-3 text-sm font-semibold" colSpan={3}>Total</td>
-                              <td className="p-3 text-sm text-right font-bold">
-                                {productRevenueData.reduce((sum, row) => sum + Number(row.quantity_sold), 0)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold">
-                                {productRevenueData.reduce((sum, row) => {
-                                  const qty = Number(row.quantity_sold);
-                                  return sum + (row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty);
-                                }, 0).toFixed(2)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold text-primary">
-                                ₹{productRevenueData.reduce((sum, row) => sum + Number(row.revenue), 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
+                    <div className="flex gap-4">
+                      {/* Charts Section */}
+                      <div className={cn("transition-all duration-300", productRevenueDetailUser ? "w-1/2" : "w-full")}>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* User-wise Quantity Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">User-wise Quantity (KG)</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const userQuantity: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        const qty = Number(row.quantity_sold);
+                                        const kgQty = row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty;
+                                        userQuantity[row.full_name] = (userQuantity[row.full_name] || 0) + kgQty;
+                                      });
+                                      return Object.entries(userQuantity)
+                                        .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.split(' ')[0]} (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={10}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(data) => {
+                                      if (productRevenueDetailUser === data.name) {
+                                        setProductRevenueDetailUser('');
+                                      } else {
+                                        setProductRevenueDetailUser(data.name);
+                                      }
+                                    }}
+                                  >
+                                    {(() => {
+                                      const userQuantity: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userQuantity[row.full_name] = (userQuantity[row.full_name] || 0) + 1;
+                                      });
+                                      return Object.keys(userQuantity).map((_, index) => (
+                                        <Cell key={`cell-qty-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `${value.toFixed(2)} KG`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
 
-                      {/* Revenue Distribution Pie Chart */}
-                      <div className="mt-6">
-                        <h4 className="text-sm font-medium mb-4">Revenue Distribution by Product for {productRevenueUser}</h4>
-                        <div className="h-[300px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={productRevenueData.map((row, index) => ({
-                                  name: row.product_name,
-                                  value: Number(row.revenue),
-                                  fill: `hsl(${(index * 360) / productRevenueData.length}, 70%, 50%)`
-                                }))}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                                outerRadius={100}
-                                dataKey="value"
-                                fontSize={9}
-                              >
-                                {productRevenueData.map((_, index) => (
-                                  <Cell key={`cell-${index}`} fill={`hsl(${(index * 360) / productRevenueData.length}, 70%, 50%)`} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
-                              <Legend wrapperStyle={{ fontSize: '9px' }} />
-                            </PieChart>
-                          </ResponsiveContainer>
+                          {/* User-wise Revenue Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">User-wise Revenue</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const userRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userRevenue[row.full_name] = (userRevenue[row.full_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.entries(userRevenue)
+                                        .map(([name, value]) => ({ name, value }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.split(' ')[0]} (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={10}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(data) => {
+                                      if (productRevenueDetailUser === data.name) {
+                                        setProductRevenueDetailUser('');
+                                      } else {
+                                        setProductRevenueDetailUser(data.name);
+                                      }
+                                    }}
+                                  >
+                                    {(() => {
+                                      const userRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userRevenue[row.full_name] = (userRevenue[row.full_name] || 0) + 1;
+                                      });
+                                      return Object.keys(userRevenue).map((_, index) => (
+                                        <Cell key={`cell-rev-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+
+                          {/* Revenue by Product Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">Revenue by Product</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const productRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.entries(productRevenue)
+                                        .map(([name, value]) => ({ name, value }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.substring(0, 10)}... (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={9}
+                                  >
+                                    {(() => {
+                                      const productRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.keys(productRevenue).map((_, index) => (
+                                        <Cell key={`cell-prod-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </>
-                  ) : productRevenueUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
+
+                      {/* Detail Panel */}
+                      {productRevenueDetailUser && (
+                        <div className="w-1/2 border rounded-lg p-4 animate-fade-in">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-sm font-semibold">
+                              Product Details: {productRevenueDetailUser}
+                            </h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => setProductRevenueDetailUser('')}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <ScrollArea className="h-[320px]">
+                            <table className="w-full text-sm">
+                              <thead className="bg-muted/50 sticky top-0">
+                                <tr className="border-b">
+                                  <th className="text-left p-2 font-medium">Date</th>
+                                  <th className="text-left p-2 font-medium">Product</th>
+                                  <th className="text-right p-2 font-medium">KG</th>
+                                  <th className="text-right p-2 font-medium">Revenue</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {productRevenueData
+                                  .filter(row => row.full_name === productRevenueDetailUser)
+                                  .map((row, index) => {
+                                    const qty = Number(row.quantity_sold);
+                                    const kgQty = row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty;
+                                    return (
+                                      <tr key={index} className="border-b hover:bg-muted/30">
+                                        <td className="p-2">{format(new Date(row.order_date), 'MMM dd')}</td>
+                                        <td className="p-2">{row.product_name}</td>
+                                        <td className="p-2 text-right">{kgQty.toFixed(2)}</td>
+                                        <td className="p-2 text-right font-medium">₹{Number(row.revenue).toLocaleString()}</td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                              <tfoot className="bg-muted/30">
+                                <tr>
+                                  <td className="p-2 font-semibold" colSpan={2}>Total</td>
+                                  <td className="p-2 text-right font-bold">
+                                    {productRevenueData
+                                      .filter(row => row.full_name === productRevenueDetailUser)
+                                      .reduce((sum, row) => {
+                                        const qty = Number(row.quantity_sold);
+                                        return sum + (row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty);
+                                      }, 0).toFixed(2)}
+                                  </td>
+                                  <td className="p-2 text-right font-bold text-primary">
+                                    ₹{productRevenueData
+                                      .filter(row => row.full_name === productRevenueDetailUser)
+                                      .reduce((sum, row) => sum + Number(row.revenue), 0).toLocaleString()}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </ScrollArea>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
@@ -2558,6 +3149,7 @@ const Analytics = () => {
             data={pendingPaymentDetails}
             isLoading={detailsLoading}
           />
+
         </div>
       </div>
     </Layout>

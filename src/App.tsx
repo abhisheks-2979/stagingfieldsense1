@@ -18,6 +18,14 @@ import { visitStatusCache } from "@/lib/visitStatusCache";
 import { NetworkProvider } from "@/contexts/NetworkContext";
 import { SlowConnectionBanner } from "@/components/SlowConnectionBanner";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { checkAndClearStaleState } from "@/utils/buildVersionManager";
+
+// Check for stale state immediately on app load (before React renders)
+// This clears navigation customization and other cached data when new code is deployed
+const versionCheck = checkAndClearStaleState();
+if (versionCheck.isNewVersion && versionCheck.clearedKeys.length > 0) {
+  console.log('[App] Fresh deployment detected, cleared stale browser state');
+}
 
 // Initialize visit status cache early to avoid flicker
 visitStatusCache.init();
@@ -118,6 +126,7 @@ import RecycleBinAdmin from "./pages/admin/RecycleBinAdmin";
 import DistributorPortalAdmin from "./pages/admin/DistributorPortalAdmin";
 import TargetVsActual from "./pages/admin/TargetVsActual";
 import HierarchyTargets from "./pages/admin/HierarchyTargets";
+import TenantManagement from "./pages/admin/TenantManagement";
 import MyTargets from "./pages/MyTargets";
 import MyTarget from "./pages/MyTarget";
 import TeamTargets from "./pages/TeamTargets";
@@ -133,6 +142,7 @@ import EditDistributor from "./pages/EditDistributor";
 import PrimaryOrders from "./pages/PrimaryOrders";
 import ResetPassword from "./pages/ResetPassword";
 import ChangePassword from "./pages/ChangePassword";
+import Status from "./pages/Status";
 
 // Distributor Portal Pages
 import DistributorLogin from "./pages/distributor-portal/DistributorLogin";
@@ -305,6 +315,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/request-demo" element={<DemoRequestPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/auth" element={<RoleBasedAuthPage />} />
+        <Route path="/status" element={<Status />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/auth/complete-profile" element={<CompleteProfile />} />
@@ -313,6 +324,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/admin-controls" element={<ProtectedRoute><AdminControls /></ProtectedRoute>} />
+        <Route path="/admin/tenants" element={<ProtectedRoute><TenantManagement /></ProtectedRoute>} />
         <Route path="/feature-management" element={<ProtectedRoute><FeatureManagement /></ProtectedRoute>} />
         <Route path="/push-content-setup" element={<ProtectedRoute><PushContentSetup /></ProtectedRoute>} />
         <Route path="/user_roles" element={<ProtectedRoute><UserRoles /></ProtectedRoute>} />

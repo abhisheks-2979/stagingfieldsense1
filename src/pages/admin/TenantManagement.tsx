@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Building2, Users, Plus, UserPlus, Crown, Shield, User } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Building2, Users, Plus, UserPlus, Crown, Shield, User, Settings, FileText, Calendar, Rocket } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { format } from 'date-fns';
 
 interface Tenant {
   id: string;
@@ -32,17 +34,55 @@ interface TenantUser {
   };
 }
 
+interface LicenseConfig {
+  id: string;
+  tenant_id: string;
+  license_type: 'Starter' | 'Professional' | 'Enterprise';
+  valid_until: string | null;
+  agreement_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const LICENSE_PLANS = [
+  { 
+    type: 'Starter', 
+    description: 'Basic features for small teams',
+    color: 'bg-emerald-500',
+    features: ['Up to 10 users', 'Basic reporting', 'Email support']
+  },
+  { 
+    type: 'Professional', 
+    description: 'Advanced features for growing teams',
+    color: 'bg-blue-500',
+    features: ['Up to 50 users', 'Advanced analytics', 'Priority support', 'API access']
+  },
+  { 
+    type: 'Enterprise', 
+    description: 'Full features for large organizations',
+    color: 'bg-violet-500',
+    features: ['Unlimited users', 'Custom integrations', 'Dedicated support', 'SLA guarantee']
+  }
+];
+
 const TenantManagement = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
+  const [licenseConfig, setLicenseConfig] = useState<LicenseConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showAddUserDialog, setShowAddUserDialog] = useState(false);
+  const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [newTenantName, setNewTenantName] = useState('');
   const [availableUsers, setAvailableUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState<'admin' | 'member'>('member');
+  const [selectedLicenseType, setSelectedLicenseType] = useState<'Starter' | 'Professional' | 'Enterprise'>('Starter');
+  const [validUntil, setValidUntil] = useState('');
+  const [agreementDate, setAgreementDate] = useState('');
+  const [activeTab, setActiveTab] = useState('users');
+  const [deploying, setDeploying] = useState(false);
 
   useEffect(() => {
     fetchTenants();
@@ -51,8 +91,78 @@ const TenantManagement = () => {
   useEffect(() => {
     if (selectedTenant) {
       fetchTenantUsers(selectedTenant.id);
+      fetchLicenseConfig(selectedTenant.id);
     }
   }, [selectedTenant]);
+
+  const fetchLicenseConfig = async (tenantId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('license_config')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setLicenseConfig(data as LicenseConfig | null);
+      if (data) {
+        setSelectedLicenseType(data.license_type as 'Starter' | 'Professional' | 'Enterprise');
+        setValidUntil(data.valid_until ? data.valid_until.split('T')[0] : '');
+        setAgreementDate(data.agreement_date ? data.agreement_date.split('T')[0] : '');
+      } else {
+        setSelectedLicenseType('Starter');
+        setValidUntil('');
+        setAgreementDate('');
+      }
+    } catch (error) {
+      console.error('Error fetching license config:', error);
+    }
+  };
+
+  const deployLicense = async () => {
+    if (!selectedTenant) return;
+    if (!validUntil) {
+      toast.error('Please set a Valid Until date');
+      return;
+    }
+
+    setDeploying(true);
+    try {
+      const licenseData = {
+        tenant_id: selectedTenant.id,
+        license_type: selectedLicenseType,
+        valid_until: validUntil,
+        agreement_date: agreementDate || null,
+        updated_at: new Date().toISOString()
+      };
+
+      if (licenseConfig) {
+        // Update existing
+        const { error } = await supabase
+          .from('license_config')
+          .update(licenseData)
+          .eq('id', licenseConfig.id);
+
+        if (error) throw error;
+      } else {
+        // Insert new
+        const { error } = await supabase
+          .from('license_config')
+          .insert(licenseData);
+
+        if (error) throw error;
+      }
+
+      toast.success(`${selectedLicenseType} plan deployed to ${selectedTenant.name}`);
+      setShowDeployDialog(false);
+      fetchLicenseConfig(selectedTenant.id);
+    } catch (error: any) {
+      console.error('Error deploying license:', error);
+      toast.error(error.message || 'Failed to deploy license');
+    } finally {
+      setDeploying(false);
+    }
+  };
 
   const fetchTenants = async () => {
     try {
@@ -327,114 +437,270 @@ const TenantManagement = () => {
             </CardContent>
           </Card>
 
-          {/* Tenant Details & Users */}
+          {/* Tenant Details with Tabs */}
           <Card className="lg:col-span-2">
             {selectedTenant ? (
               <>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="h-5 w-5" />
-                      {selectedTenant.name} - Users
-                    </CardTitle>
-                    <Dialog open={showAddUserDialog} onOpenChange={(open) => {
-                      setShowAddUserDialog(open);
-                      if (open) fetchAvailableUsers();
-                    }}>
-                      <DialogTrigger asChild>
-                        <Button size="sm">
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Add User
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Add User to {selectedTenant.name}</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4 pt-4">
-                          <div>
-                            <Label>Select User</Label>
-                            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Choose a user" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableUsers.map((user) => (
-                                  <SelectItem key={user.id} value={user.id}>
-                                    {user.full_name || user.username}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label>Role</Label>
-                            <Select value={selectedRole} onValueChange={(v: 'admin' | 'member') => setSelectedRole(v)}>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="member">Member</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button onClick={addUserToTenant} className="w-full">
-                            Add to Tenant
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5" />
+                    {selectedTenant.name}
+                  </CardTitle>
+                  <CardDescription>Manage users and license configuration</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {tenantUsers.map((tu) => (
-                      <div key={tu.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          {getRoleIcon(tu.role)}
-                          <div>
-                            <p className="font-medium">
-                              {tu.profiles?.full_name || tu.profiles?.username || 'Unknown User'}
-                            </p>
-                            <Badge variant={getRoleBadgeVariant(tu.role) as any} className="mt-1">
-                              {tu.role}
-                            </Badge>
+                  <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList className="grid w-full grid-cols-2 mb-4">
+                      <TabsTrigger value="users" className="flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Users
+                      </TabsTrigger>
+                      <TabsTrigger value="license" className="flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        Manage Tenant
+                      </TabsTrigger>
+                    </TabsList>
+
+                    {/* Users Tab */}
+                    <TabsContent value="users" className="space-y-4">
+                      <div className="flex justify-end">
+                        <Dialog open={showAddUserDialog} onOpenChange={(open) => {
+                          setShowAddUserDialog(open);
+                          if (open) fetchAvailableUsers();
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button size="sm">
+                              <UserPlus className="h-4 w-4 mr-2" />
+                              Add User
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Add User to {selectedTenant.name}</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 pt-4">
+                              <div>
+                                <Label>Select User</Label>
+                                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Choose a user" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableUsers.map((user) => (
+                                      <SelectItem key={user.id} value={user.id}>
+                                        {user.full_name || user.username}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label>Role</Label>
+                                <Select value={selectedRole} onValueChange={(v: 'admin' | 'member') => setSelectedRole(v)}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                    <SelectItem value="member">Member</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <Button onClick={addUserToTenant} className="w-full">
+                                Add to Tenant
+                              </Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+
+                      <div className="space-y-3">
+                        {tenantUsers.map((tu) => (
+                          <div key={tu.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              {getRoleIcon(tu.role)}
+                              <div>
+                                <p className="font-medium">
+                                  {tu.profiles?.full_name || tu.profiles?.username || 'Unknown User'}
+                                </p>
+                                <Badge variant={getRoleBadgeVariant(tu.role) as any} className="mt-1">
+                                  {tu.role}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={tu.role}
+                                onValueChange={(v: 'owner' | 'admin' | 'member') => updateUserRole(tu.id, v)}
+                              >
+                                <SelectTrigger className="w-28">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="owner">Owner</SelectItem>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="member">Member</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {tu.role !== 'owner' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive"
+                                  onClick={() => removeUserFromTenant(tu.id, tu.user_id)}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {tenantUsers.length === 0 && (
+                          <p className="text-center text-muted-foreground py-8">
+                            No users in this tenant. Add users to get started.
+                          </p>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    {/* License/Manage Tenant Tab */}
+                    <TabsContent value="license" className="space-y-6">
+                      {/* Current License Status */}
+                      {licenseConfig && (
+                        <div className="p-4 border rounded-lg bg-muted/30">
+                          <h4 className="font-semibold flex items-center gap-2 mb-3">
+                            <FileText className="h-4 w-4" />
+                            Current License
+                          </h4>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Plan:</span>
+                              <Badge className="ml-2" variant="default">
+                                {licenseConfig.license_type}
+                              </Badge>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Valid Until:</span>
+                              <span className="ml-2 font-medium">
+                                {licenseConfig.valid_until 
+                                  ? format(new Date(licenseConfig.valid_until), 'PPP')
+                                  : 'Not set'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Agreement Date:</span>
+                              <span className="ml-2">
+                                {licenseConfig.agreement_date 
+                                  ? format(new Date(licenseConfig.agreement_date), 'PPP')
+                                  : 'Not set'}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={tu.role}
-                            onValueChange={(v: 'owner' | 'admin' | 'member') => updateUserRole(tu.id, v)}
-                          >
-                            <SelectTrigger className="w-28">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="owner">Owner</SelectItem>
-                              <SelectItem value="admin">Admin</SelectItem>
-                              <SelectItem value="member">Member</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {tu.role !== 'owner' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive"
-                              onClick={() => removeUserFromTenant(tu.id, tu.user_id)}
+                      )}
+
+                      {/* License Plan Selection */}
+                      <div>
+                        <Label className="text-base font-semibold mb-3 block">Select License Plan</Label>
+                        <div className="grid gap-3">
+                          {LICENSE_PLANS.map((plan) => (
+                            <div
+                              key={plan.type}
+                              onClick={() => setSelectedLicenseType(plan.type as any)}
+                              className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                selectedLicenseType === plan.type
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border hover:border-primary/50'
+                              }`}
                             >
-                              Remove
-                            </Button>
-                          )}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-3 h-3 rounded-full ${plan.color}`} />
+                                  <div>
+                                    <p className="font-semibold">{plan.type}</p>
+                                    <p className="text-sm text-muted-foreground">{plan.description}</p>
+                                  </div>
+                                </div>
+                                {selectedLicenseType === plan.type && (
+                                  <Badge variant="default">Selected</Badge>
+                                )}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {plan.features.map((feature) => (
+                                  <Badge key={feature} variant="outline" className="text-xs">
+                                    {feature}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                    {tenantUsers.length === 0 && (
-                      <p className="text-center text-muted-foreground py-8">
-                        No users in this tenant. Add users to get started.
-                      </p>
-                    )}
-                  </div>
+
+                      {/* Date Configuration */}
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="validUntil" className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            Valid Until *
+                          </Label>
+                          <Input
+                            id="validUntil"
+                            type="date"
+                            value={validUntil}
+                            onChange={(e) => setValidUntil(e.target.value)}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="agreementDate" className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            Agreement Date
+                          </Label>
+                          <Input
+                            id="agreementDate"
+                            type="date"
+                            value={agreementDate}
+                            onChange={(e) => setAgreementDate(e.target.value)}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Deploy Button */}
+                      <Dialog open={showDeployDialog} onOpenChange={setShowDeployDialog}>
+                        <DialogTrigger asChild>
+                          <Button className="w-full" size="lg" disabled={!validUntil}>
+                            <Rocket className="h-4 w-4 mr-2" />
+                            Deploy License
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Confirm License Deployment</DialogTitle>
+                            <DialogDescription>
+                              You are deploying the <strong>{selectedLicenseType}</strong> plan to <strong>{selectedTenant.name}</strong>.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="py-4 space-y-2 text-sm">
+                            <p><strong>Plan:</strong> {selectedLicenseType}</p>
+                            <p><strong>Valid Until:</strong> {validUntil ? format(new Date(validUntil), 'PPP') : 'Not set'}</p>
+                            {agreementDate && (
+                              <p><strong>Agreement Date:</strong> {format(new Date(agreementDate), 'PPP')}</p>
+                            )}
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowDeployDialog(false)}>
+                              Cancel
+                            </Button>
+                            <Button onClick={deployLicense} disabled={deploying}>
+                              {deploying ? 'Deploying...' : 'Confirm Deploy'}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </>
             ) : (

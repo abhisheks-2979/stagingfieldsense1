@@ -116,6 +116,7 @@ export const Navbar = memo(() => {
   // Nav customization hook
   const {
     customization,
+    isLoading: isCustomizationLoading,
     isCustomized,
     createGroup,
     deleteGroup,
@@ -128,9 +129,13 @@ export const Navbar = memo(() => {
     getOrganizedItems,
   } = useNavCustomization(navigationItems);
 
+  // Get organized items - memoized based on customization changes
+  const organizedNav = useMemo(() => getOrganizedItems(), [getOrganizedItems]);
+
   // Admin-only navigation items
   const adminNavigationItems = [
     { icon: Shield, label: t('nav.adminPanel'), href: "/admin-controls", color: "from-emerald-500 to-emerald-600" },
+    { icon: Building2, label: "Tenants", href: "/admin/tenants", color: "from-violet-500 to-violet-600" },
   ];
 
   // Get user display name and initials
@@ -315,7 +320,7 @@ export const Navbar = memo(() => {
             </div>
 
             {/* Custom Groups */}
-            {getOrganizedItems().groups.map((group) => (
+            {organizedNav.groups.map((group) => (
               <NavGroupSection
                 key={group.id}
                 name={group.name}
@@ -327,7 +332,7 @@ export const Navbar = memo(() => {
 
             {/* Ungrouped Items - Draggable */}
             <DraggableNavGrid
-              items={getOrganizedItems().ungroupedItems}
+              items={organizedNav.ungroupedItems}
               onReorder={(newItemIds) => reorderItems(null, newItemIds)}
               onItemClick={handleMenuItemClick}
             />
