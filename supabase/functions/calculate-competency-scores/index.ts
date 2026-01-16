@@ -132,7 +132,7 @@ serve(async (req) => {
       
       supabase
         .from('orders')
-        .select('id, total_amount, status, order_date')
+        .select('id, total_amount, status, order_date, is_credit_order')
         .eq('user_id', userId)
         .gte('order_date', baselineStart.toISOString().split('T')[0])
         .lte('order_date', baselineEnd.toISOString().split('T')[0]),
