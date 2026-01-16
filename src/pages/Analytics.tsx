@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -175,14 +175,12 @@ const Analytics = () => {
   });
   const [productivitySummaryDateOpen, setProductivitySummaryDateOpen] = useState(false);
 
-  // Day-wise detail dialog states for Order Summary
-  const [orderDetailDialogOpen, setOrderDetailDialogOpen] = useState(false);
+  // Day-wise detail panel states for Order Summary (inline, not dialog)
   const [orderDetailUser, setOrderDetailUser] = useState<string>('');
   const [orderDetailData, setOrderDetailData] = useState<{ date: string; day: string; amount: number }[]>([]);
   const [orderDetailLoading, setOrderDetailLoading] = useState(false);
 
-  // Day-wise detail dialog states for Productivity Summary
-  const [productivityDetailDialogOpen, setProductivityDetailDialogOpen] = useState(false);
+  // Day-wise detail panel states for Productivity Summary (inline, not dialog)
   const [productivityDetailUser, setProductivityDetailUser] = useState<string>('');
   const [productivityDetailData, setProductivityDetailData] = useState<{ date: string; day: string; productive: number; total: number; percentage: number }[]>([]);
   const [productivityDetailLoading, setProductivityDetailLoading] = useState(false);
@@ -199,8 +197,8 @@ const Analytics = () => {
   const [productRevenueData, setProductRevenueData] = useState<any[]>([]);
   const [productRevenueLoading, setProductRevenueLoading] = useState(false);
   const [productRevenueDateRange, setProductRevenueDateRange] = useState<{ from: Date; to: Date }>({
-    from: new Date('2026-01-01'),
-    to: new Date('2026-01-08')
+    from: subDays(new Date(), 30),
+    to: new Date()
   });
   const [productRevenueDateOpen, setProductRevenueDateOpen] = useState(false);
 
@@ -698,7 +696,6 @@ const Analytics = () => {
   const fetchOrderDayWiseDetails = async (userName: string) => {
     setOrderDetailLoading(true);
     setOrderDetailUser(userName);
-    setOrderDetailDialogOpen(true);
     try {
       const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
       const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
@@ -751,7 +748,6 @@ const Analytics = () => {
   const fetchProductivityDayWiseDetails = async (userName: string) => {
     setProductivityDetailLoading(true);
     setProductivityDetailUser(userName);
-    setProductivityDetailDialogOpen(true);
     try {
       const fromDate = format(productivitySummaryDateRange.from, 'yyyy-MM-dd');
       const toDate = format(productivitySummaryDateRange.to, 'yyyy-MM-dd');
@@ -2480,76 +2476,133 @@ const Analytics = () => {
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
                   ) : orderSummaryByUserData.length > 0 ? (
-                    <>
-                      {/* Pie Chart - Click on segment for day-wise details */}
-                      <p className="text-xs text-muted-foreground text-center">Click on a segment to view day-wise details</p>
-                      <div className="h-[350px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={orderSummaryByUserData}
-                              dataKey="total_order_value"
-                              nameKey="full_name"
-                              cx="50%"
-                              cy="50%"
-                              outerRadius={120}
-                              label={({ full_name, percent }) => `${full_name} (${(percent * 100).toFixed(0)}%)`}
-                              labelLine={true}
-                              onClick={(data) => fetchOrderDayWiseDetails(data.full_name)}
-                              style={{ cursor: 'pointer' }}
-                            >
-                              {orderSummaryByUserData.map((entry, index) => (
-                                <Cell 
-                                  key={`cell-${index}`} 
-                                  fill={CHART_COLORS[index % CHART_COLORS.length]}
-                                  style={{ cursor: 'pointer' }}
-                                />
+                    <div className="flex gap-4">
+                      {/* Left side - Chart and Table */}
+                      <div className={`transition-all duration-300 ${orderDetailUser ? 'w-1/2' : 'w-full'}`}>
+                        <p className="text-xs text-muted-foreground text-center mb-2">Click on a segment or row to view day-wise details</p>
+                        <div className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={orderSummaryByUserData}
+                                dataKey="total_order_value"
+                                nameKey="full_name"
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={100}
+                                label={({ full_name, percent }) => `${full_name} (${(percent * 100).toFixed(0)}%)`}
+                                labelLine={true}
+                                onClick={(data) => fetchOrderDayWiseDetails(data.full_name)}
+                                style={{ cursor: 'pointer' }}
+                                fontSize={10}
+                              >
+                                {orderSummaryByUserData.map((entry, index) => (
+                                  <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                              <Legend wrapperStyle={{ fontSize: '10px' }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Data Table */}
+                        <div className="overflow-x-auto border rounded-lg mt-4">
+                          <table className="w-full">
+                            <thead className="bg-muted/50">
+                              <tr className="border-b">
+                                <th className="text-left p-2 text-sm font-medium">Full Name</th>
+                                <th className="text-right p-2 text-sm font-medium">Total Order Value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {orderSummaryByUserData.map((row, index) => (
+                                <tr 
+                                  key={index} 
+                                  className={`border-b hover:bg-muted/30 cursor-pointer ${orderDetailUser === row.full_name ? 'bg-primary/10' : ''}`}
+                                  onClick={() => fetchOrderDayWiseDetails(row.full_name)}
+                                >
+                                  <td className="p-2 text-sm flex items-center gap-2">
+                                    <span 
+                                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                    />
+                                    {row.full_name}
+                                  </td>
+                                  <td className="p-2 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
+                                </tr>
                               ))}
-                            </Pie>
-                            <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
-                            <Legend />
-                          </PieChart>
-                        </ResponsiveContainer>
+                            </tbody>
+                            <tfoot className="bg-muted/30">
+                              <tr>
+                                <td className="p-2 text-sm font-semibold">Total</td>
+                                <td className="p-2 text-sm text-right font-bold text-primary">
+                                  ₹{orderSummaryByUserData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
                       </div>
 
-                      {/* Data Table */}
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full">
-                          <thead className="bg-muted/50">
-                            <tr className="border-b">
-                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                              <th className="text-right p-3 text-sm font-medium">Total Order Value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {orderSummaryByUserData.map((row, index) => (
-                              <tr 
-                                key={index} 
-                                className="border-b hover:bg-muted/30 cursor-pointer"
-                                onClick={() => fetchOrderDayWiseDetails(row.full_name)}
-                              >
-                                <td className="p-3 text-sm flex items-center gap-2">
-                                  <span 
-                                    className="w-3 h-3 rounded-full" 
-                                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-                                  />
-                                  {row.full_name}
-                                </td>
-                                <td className="p-3 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-muted/30">
-                            <tr>
-                              <td className="p-3 text-sm font-semibold">Total</td>
-                              <td className="p-3 text-sm text-right font-bold text-primary">
-                                ₹{orderSummaryByUserData.reduce((sum, row) => sum + row.total_order_value, 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </>
+                      {/* Right side - Day-wise details panel */}
+                      {orderDetailUser && (
+                        <div className="w-1/2 border-l pl-4 animate-in slide-in-from-right duration-300">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-sm">Day-wise Order Details - {orderDetailUser}</h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => { setOrderDetailUser(''); setOrderDetailData([]); }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {orderDetailLoading ? (
+                            <div className="text-center py-8">
+                              <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                              <p className="text-muted-foreground text-sm">Loading...</p>
+                            </div>
+                          ) : orderDetailData.length > 0 ? (
+                            <div className="overflow-x-auto border rounded-lg">
+                              <table className="w-full">
+                                <thead className="bg-muted/50">
+                                  <tr className="border-b">
+                                    <th className="text-left p-2 text-sm font-medium">Date</th>
+                                    <th className="text-left p-2 text-sm font-medium">Day</th>
+                                    <th className="text-right p-2 text-sm font-medium">Amount</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {orderDetailData.map((row, index) => (
+                                    <tr key={index} className="border-b hover:bg-muted/30">
+                                      <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                                      <td className="p-2 text-sm">{row.day}</td>
+                                      <td className="p-2 text-sm text-right font-semibold">₹{row.amount.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-muted/30">
+                                  <tr>
+                                    <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                                    <td className="p-2 text-sm text-right font-bold text-primary">
+                                      ₹{orderDetailData.reduce((sum, row) => sum + row.amount, 0).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-muted-foreground text-sm">No orders found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
                       No data found for the selected date range
@@ -2599,107 +2652,181 @@ const Analytics = () => {
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
                   ) : productivityByUserData.length > 0 ? (
-                    <>
-                      {/* Horizontal Bar Chart - Click on bar for day-wise details */}
-                      <p className="text-xs text-muted-foreground text-center">Click on a bar to view day-wise details</p>
-                      <div className="h-[350px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={productivityByUserData.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }))}
-                            layout="vertical"
-                            margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                            onClick={(data) => {
-                              if (data && data.activePayload && data.activePayload[0]) {
-                                fetchProductivityDayWiseDetails(data.activePayload[0].payload.full_name);
-                              }
-                            }}
-                          >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} fontSize={10} />
-                            <YAxis type="category" dataKey="full_name" fontSize={10} width={90} />
-                            <Tooltip 
-                              formatter={(value: number, name: string) => {
-                                if (name === 'Productivity %') return [`${value}%`, 'Productivity'];
-                                if (name === 'productive_visits') return [value, 'Productive Visits'];
-                                if (name === 'total_visits') return [value, 'Total Visits'];
-                                return [value, name];
+                    <div className="flex gap-4">
+                      {/* Left side - Chart and Table */}
+                      <div className={`transition-all duration-300 ${productivityDetailUser ? 'w-1/2' : 'w-full'}`}>
+                        <p className="text-xs text-muted-foreground text-center mb-2">Click on a bar or row to view day-wise details</p>
+                        <div className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={productivityByUserData.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }))}
+                              layout="vertical"
+                              margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                              onClick={(data) => {
+                                if (data && data.activePayload && data.activePayload[0]) {
+                                  fetchProductivityDayWiseDetails(data.activePayload[0].payload.full_name);
+                                }
                               }}
-                            />
-                            <Legend />
-                            <Bar 
-                              dataKey="productivity_percentage" 
-                              name="Productivity %" 
-                              radius={[0, 4, 4, 0]}
-                              style={{ cursor: 'pointer' }}
                             >
-                              {productivityByUserData.map((entry, index) => (
-                                <Cell 
-                                  key={`cell-${index}`} 
-                                  fill={CHART_COLORS[index % CHART_COLORS.length]}
-                                  style={{ cursor: 'pointer' }}
-                                />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-
-                      {/* Data Table */}
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full">
-                          <thead className="bg-muted/50">
-                            <tr className="border-b">
-                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                              <th className="text-right p-3 text-sm font-medium">Productive Visits</th>
-                              <th className="text-right p-3 text-sm font-medium">Total Visits</th>
-                              <th className="text-right p-3 text-sm font-medium">Productivity %</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {productivityByUserData.map((row, index) => (
-                              <tr 
-                                key={index} 
-                                className="border-b hover:bg-muted/30 cursor-pointer"
-                                onClick={() => fetchProductivityDayWiseDetails(row.full_name)}
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} fontSize={10} />
+                              <YAxis type="category" dataKey="full_name" fontSize={9} width={70} />
+                              <Tooltip 
+                                formatter={(value: number, name: string) => {
+                                  if (name === 'Productivity %') return [`${value}%`, 'Productivity'];
+                                  if (name === 'productive_visits') return [value, 'Productive Visits'];
+                                  if (name === 'total_visits') return [value, 'Total Visits'];
+                                  return [value, name];
+                                }}
+                              />
+                              <Legend wrapperStyle={{ fontSize: '10px' }} />
+                              <Bar 
+                                dataKey="productivity_percentage" 
+                                name="Productivity %" 
+                                radius={[0, 4, 4, 0]}
+                                style={{ cursor: 'pointer' }}
                               >
-                                <td className="p-3 text-sm font-medium flex items-center gap-2">
-                                  <span 
-                                    className="w-3 h-3 rounded-full" 
-                                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                {productivityByUserData.map((entry, index) => (
+                                  <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                    style={{ cursor: 'pointer' }}
                                   />
-                                  {row.full_name}
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Data Table */}
+                        <div className="overflow-x-auto border rounded-lg mt-4">
+                          <table className="w-full">
+                            <thead className="bg-muted/50">
+                              <tr className="border-b">
+                                <th className="text-left p-2 text-sm font-medium">Full Name</th>
+                                <th className="text-right p-2 text-sm font-medium">Productive</th>
+                                <th className="text-right p-2 text-sm font-medium">Total</th>
+                                <th className="text-right p-2 text-sm font-medium">%</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {productivityByUserData.map((row, index) => (
+                                <tr 
+                                  key={index} 
+                                  className={`border-b hover:bg-muted/30 cursor-pointer ${productivityDetailUser === row.full_name ? 'bg-primary/10' : ''}`}
+                                  onClick={() => fetchProductivityDayWiseDetails(row.full_name)}
+                                >
+                                  <td className="p-2 text-sm font-medium flex items-center gap-2">
+                                    <span 
+                                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                    />
+                                    {row.full_name}
+                                  </td>
+                                  <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
+                                  <td className="p-2 text-sm text-right font-medium">{row.total_visits}</td>
+                                  <td className="p-2 text-sm text-right font-semibold">
+                                    <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                      {row.productivity_percentage}%
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-muted/30">
+                              <tr>
+                                <td className="p-2 text-sm font-semibold">Total</td>
+                                <td className="p-2 text-sm text-right font-bold text-green-600">
+                                  {productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0)}
                                 </td>
-                                <td className="p-3 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
-                                <td className="p-3 text-sm text-right font-medium">{row.total_visits}</td>
-                                <td className="p-3 text-sm text-right font-semibold">
-                                  <span className={row.productivity_percentage >= 70 ? 'text-green-600' : row.productivity_percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                                    {row.productivity_percentage}%
-                                  </span>
+                                <td className="p-2 text-sm text-right font-bold">
+                                  {productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0)}
+                                </td>
+                                <td className="p-2 text-sm text-right font-bold text-primary">
+                                  {(() => {
+                                    const totalProductive = productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0);
+                                    const totalVisits = productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0);
+                                    return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
+                                  })()}%
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-muted/30">
-                            <tr>
-                              <td className="p-3 text-sm font-semibold">Total</td>
-                              <td className="p-3 text-sm text-right font-bold text-green-600">
-                                {productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold">
-                                {productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold text-primary">
-                                {(() => {
-                                  const totalProductive = productivityByUserData.reduce((sum, row) => sum + row.productive_visits, 0);
-                                  const totalVisits = productivityByUserData.reduce((sum, row) => sum + row.total_visits, 0);
-                                  return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100 * 100) / 100 : 0;
-                                })()}%
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
+                            </tfoot>
+                          </table>
+                        </div>
                       </div>
-                    </>
+
+                      {/* Right side - Day-wise details panel */}
+                      {productivityDetailUser && (
+                        <div className="w-1/2 border-l pl-4 animate-in slide-in-from-right duration-300">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-sm">Day-wise Productivity - {productivityDetailUser}</h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => { setProductivityDetailUser(''); setProductivityDetailData([]); }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {productivityDetailLoading ? (
+                            <div className="text-center py-8">
+                              <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                              <p className="text-muted-foreground text-sm">Loading...</p>
+                            </div>
+                          ) : productivityDetailData.length > 0 ? (
+                            <div className="overflow-x-auto border rounded-lg">
+                              <table className="w-full">
+                                <thead className="bg-muted/50">
+                                  <tr className="border-b">
+                                    <th className="text-left p-2 text-sm font-medium">Date</th>
+                                    <th className="text-left p-2 text-sm font-medium">Day</th>
+                                    <th className="text-right p-2 text-sm font-medium">Productive</th>
+                                    <th className="text-right p-2 text-sm font-medium">Total</th>
+                                    <th className="text-right p-2 text-sm font-medium">%</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {productivityDetailData.map((row, index) => (
+                                    <tr key={index} className="border-b hover:bg-muted/30">
+                                      <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                                      <td className="p-2 text-sm">{row.day}</td>
+                                      <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive}</td>
+                                      <td className="p-2 text-sm text-right">{row.total}</td>
+                                      <td className="p-2 text-sm text-right font-semibold">
+                                        <span className={row.percentage >= 70 ? 'text-green-600' : row.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                                          {row.percentage}%
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-muted/30">
+                                  <tr>
+                                    <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                                    <td className="p-2 text-sm text-right font-bold text-green-600">
+                                      {productivityDetailData.reduce((sum, row) => sum + row.productive, 0)}
+                                    </td>
+                                    <td className="p-2 text-sm text-right font-bold">
+                                      {productivityDetailData.reduce((sum, row) => sum + row.total, 0)}
+                                    </td>
+                                    <td className="p-2 text-sm text-right font-bold text-primary">
+                                      {(() => {
+                                        const totalProductive = productivityDetailData.reduce((sum, row) => sum + row.productive, 0);
+                                        const totalVisits = productivityDetailData.reduce((sum, row) => sum + row.total, 0);
+                                        return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100) : 0;
+                                      })()}%
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-muted-foreground text-sm">No visits found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
                       No data found for the selected date range
@@ -2896,115 +3023,6 @@ const Analytics = () => {
             isLoading={detailsLoading}
           />
 
-          {/* Order Summary Day-wise Detail Dialog */}
-          <Dialog open={orderDetailDialogOpen} onOpenChange={setOrderDetailDialogOpen}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Day-wise Order Details - {orderDetailUser}</DialogTitle>
-              </DialogHeader>
-              {orderDetailLoading ? (
-                <div className="text-center py-8">
-                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                  <p className="text-muted-foreground">Loading...</p>
-                </div>
-              ) : orderDetailData.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr className="border-b">
-                        <th className="text-left p-2 text-sm font-medium">Date</th>
-                        <th className="text-left p-2 text-sm font-medium">Day</th>
-                        <th className="text-right p-2 text-sm font-medium">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orderDetailData.map((row, index) => (
-                        <tr key={index} className="border-b hover:bg-muted/30">
-                          <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
-                          <td className="p-2 text-sm">{row.day}</td>
-                          <td className="p-2 text-sm text-right font-semibold">₹{row.amount.toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-muted/30">
-                      <tr>
-                        <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
-                        <td className="p-2 text-sm text-right font-bold text-primary">
-                          ₹{orderDetailData.reduce((sum, row) => sum + row.amount, 0).toLocaleString()}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-4 text-muted-foreground">No orders found</div>
-              )}
-            </DialogContent>
-          </Dialog>
-
-          {/* Productivity Summary Day-wise Detail Dialog */}
-          <Dialog open={productivityDetailDialogOpen} onOpenChange={setProductivityDetailDialogOpen}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Day-wise Productivity - {productivityDetailUser}</DialogTitle>
-              </DialogHeader>
-              {productivityDetailLoading ? (
-                <div className="text-center py-8">
-                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                  <p className="text-muted-foreground">Loading...</p>
-                </div>
-              ) : productivityDetailData.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-muted/50">
-                      <tr className="border-b">
-                        <th className="text-left p-2 text-sm font-medium">Date</th>
-                        <th className="text-left p-2 text-sm font-medium">Day</th>
-                        <th className="text-right p-2 text-sm font-medium">Productive</th>
-                        <th className="text-right p-2 text-sm font-medium">Total</th>
-                        <th className="text-right p-2 text-sm font-medium">%</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productivityDetailData.map((row, index) => (
-                        <tr key={index} className="border-b hover:bg-muted/30">
-                          <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
-                          <td className="p-2 text-sm">{row.day}</td>
-                          <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive}</td>
-                          <td className="p-2 text-sm text-right">{row.total}</td>
-                          <td className="p-2 text-sm text-right font-semibold">
-                            <span className={row.percentage >= 70 ? 'text-green-600' : row.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                              {row.percentage}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-muted/30">
-                      <tr>
-                        <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
-                        <td className="p-2 text-sm text-right font-bold text-green-600">
-                          {productivityDetailData.reduce((sum, row) => sum + row.productive, 0)}
-                        </td>
-                        <td className="p-2 text-sm text-right font-bold">
-                          {productivityDetailData.reduce((sum, row) => sum + row.total, 0)}
-                        </td>
-                        <td className="p-2 text-sm text-right font-bold text-primary">
-                          {(() => {
-                            const totalProductive = productivityDetailData.reduce((sum, row) => sum + row.productive, 0);
-                            const totalVisits = productivityDetailData.reduce((sum, row) => sum + row.total, 0);
-                            return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100) : 0;
-                          })()}%
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-4 text-muted-foreground">No visits found</div>
-              )}
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
     </Layout>
