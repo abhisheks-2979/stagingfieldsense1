@@ -87,6 +87,7 @@ const PrimaryOrders = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [syncingInventory, setSyncingInventory] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -135,6 +136,120 @@ const PrimaryOrders = () => {
     loadOrderItems(order.id);
   };
 
+  const updateDistributorInventory = async (orderId: string, distributorId: string) => {
+    try {
+      // Fetch order items
+      const { data: orderItems, error: itemsError } = await supabase
+        .from('primary_order_items')
+        .select('*')
+        .eq('order_id', orderId);
+
+      if (itemsError) throw itemsError;
+      if (!orderItems || orderItems.length === 0) return;
+
+      // Fetch order details for reference
+      const { data: orderData, error: orderError } = await supabase
+        .from('primary_orders')
+        .select('order_number')
+        .eq('id', orderId)
+        .single();
+
+      if (orderError) throw orderError;
+
+      const orderNumber = orderData?.order_number || orderId;
+
+      // NOTE: distributor_inventory.available_quantity and distributor_inventory.total_value
+      // are GENERATED ALWAYS columns in DB. Do not write to them directly.
+
+      for (const item of orderItems) {
+        const receivedQty = item.received_quantity && item.received_quantity > 0 
+          ? item.received_quantity 
+          : item.quantity;
+        if (receivedQty <= 0) continue;
+
+        // Build query with proper null handling for variant_id
+        let inventoryQuery = supabase
+          .from('distributor_inventory')
+          .select('*')
+          .eq('distributor_id', distributorId)
+          .eq('product_id', item.product_id);
+
+        // Use .is() for null, .eq() for actual values
+        if (item.variant_id) {
+          inventoryQuery = inventoryQuery.eq('variant_id', item.variant_id);
+        } else {
+          inventoryQuery = inventoryQuery.is('variant_id', null);
+        }
+
+        const { data: existingInventory, error: existingError } = await inventoryQuery.maybeSingle();
+
+        if (existingError) throw existingError;
+
+        if (existingInventory) {
+          const { error: updateError } = await supabase
+            .from('distributor_inventory')
+            .update({
+              quantity: (existingInventory.quantity || 0) + receivedQty,
+              unit_cost: existingInventory.unit_cost || item.unit_price,
+              last_received_date: new Date().toISOString().split('T')[0],
+              batch_number: item.batch_number || existingInventory.batch_number,
+              expiry_date: item.expiry_date || existingInventory.expiry_date,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingInventory.id);
+
+          if (updateError) throw updateError;
+        } else {
+          const { error: insertError } = await supabase
+            .from('distributor_inventory')
+            .insert({
+              distributor_id: distributorId,
+              product_id: item.product_id,
+              variant_id: item.variant_id || null,
+              product_name: item.product_name,
+              variant_name: item.variant_name || null,
+              sku: item.sku,
+              quantity: receivedQty,
+              reserved_quantity: 0,
+              reorder_level: 10,
+              max_stock_level: 1000,
+              unit: item.unit,
+              unit_cost: item.unit_price,
+              batch_number: item.batch_number || null,
+              expiry_date: item.expiry_date || null,
+              last_received_date: new Date().toISOString().split('T')[0],
+            });
+
+          if (insertError) throw insertError;
+        }
+
+        const { error: txnError } = await supabase
+          .from('distributor_inventory_transactions')
+          .insert({
+            distributor_id: distributorId,
+            product_id: item.product_id,
+            variant_id: item.variant_id || null,
+            transaction_type: 'inward',
+            quantity: receivedQty,
+            reference_type: 'primary_order',
+            reference_id: orderId,
+            reference_number: orderNumber,
+            batch_number: item.batch_number || null,
+            unit: item.unit,
+            unit_cost: item.unit_price,
+            notes: `Auto GRN from primary order ${orderNumber} (Admin Delivery)`,
+          });
+
+        if (txnError) throw txnError;
+      }
+
+      console.log('Distributor inventory updated successfully');
+    } catch (error) {
+      console.error('Error updating distributor inventory:', error);
+      throw error;
+    }
+  };
+
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     setUpdatingStatus(true);
     try {
@@ -146,6 +261,10 @@ const PrimaryOrders = () => {
         updateData.actual_delivery_date = new Date().toISOString().split('T')[0];
       }
 
+      // Get the order's distributor_id for inventory update
+      const order = orders.find(o => o.id === orderId) || selectedOrder;
+      const distributorId = order?.distributor_id;
+
       const { error } = await supabase
         .from('primary_orders')
         .update(updateData)
@@ -153,7 +272,19 @@ const PrimaryOrders = () => {
 
       if (error) throw error;
 
-      toast.success(`Order status updated to ${newStatus.replace('_', ' ')}`);
+      // If marking as delivered, update distributor inventory
+      if (newStatus === 'delivered' && distributorId) {
+        try {
+          await updateDistributorInventory(orderId, distributorId);
+          toast.success('Order delivered and inventory updated successfully');
+        } catch (invError) {
+          console.error('Inventory update failed:', invError);
+          toast.warning('Order marked delivered but inventory update failed. Please update inventory manually.');
+        }
+      } else {
+        toast.success(`Order status updated to ${newStatus.replace('_', ' ')}`);
+      }
+
       loadOrders();
       
       if (selectedOrder?.id === orderId) {
@@ -167,6 +298,49 @@ const PrimaryOrders = () => {
     }
   };
 
+  const checkInventorySynced = async (orderId: string, distributorId: string) => {
+    // Check if transaction logs exist
+    const { count: txCount, error: txError } = await supabase
+      .from('distributor_inventory_transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('reference_type', 'primary_order')
+      .eq('reference_id', orderId)
+      .eq('transaction_type', 'inward');
+
+    if (txError) throw txError;
+
+    // Also verify that actual inventory records exist for this distributor
+    const { count: invCount, error: invError } = await supabase
+      .from('distributor_inventory')
+      .select('id', { count: 'exact', head: true })
+      .eq('distributor_id', distributorId);
+
+    if (invError) throw invError;
+
+    // Only consider synced if BOTH transactions AND inventory records exist
+    return (txCount || 0) > 0 && (invCount || 0) > 0;
+  };
+
+  const syncInventoryForOrder = async (order: PrimaryOrder) => {
+    if (!order?.id || !order?.distributor_id) return;
+
+    setSyncingInventory(true);
+    try {
+      const alreadySynced = await checkInventorySynced(order.id, order.distributor_id);
+      if (alreadySynced) {
+        toast.message('Inventory already synced for this order');
+        return;
+      }
+
+      await updateDistributorInventory(order.id, order.distributor_id);
+      toast.success('Inventory synced successfully');
+    } catch (e) {
+      console.error('Error syncing inventory:', e);
+      toast.error('Failed to sync inventory');
+    } finally {
+      setSyncingInventory(false);
+    }
+  };
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       draft: 'bg-muted text-muted-foreground',
@@ -378,8 +552,8 @@ const PrimaryOrders = () => {
               </div>
 
               {/* Status Actions */}
-              {getNextStatuses(selectedOrder.status).length > 0 && (
-                <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
+              {getNextStatuses(selectedOrder.status).length > 0 ? (
+                <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg items-center">
                   <span className="text-sm text-muted-foreground mr-2">Update Status:</span>
                   {getNextStatuses(selectedOrder.status).map(status => (
                     <Button
@@ -392,7 +566,45 @@ const PrimaryOrders = () => {
                       {status.replace('_', ' ')}
                     </Button>
                   ))}
+
+                  {['delivered', 'partially_delivered'].includes(selectedOrder.status) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      disabled={syncingInventory}
+                      onClick={() => syncInventoryForOrder(selectedOrder)}
+                      title="Sync inventory if this order was delivered earlier but stock was not updated"
+                    >
+                      {syncingInventory ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Sync Inventory
+                    </Button>
+                  )}
                 </div>
+              ) : (
+                ['delivered', 'partially_delivered'].includes(selectedOrder.status) ? (
+                  <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg items-center">
+                    <span className="text-sm text-muted-foreground">Inventory not updated? You can resync.</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      disabled={syncingInventory}
+                      onClick={() => syncInventoryForOrder(selectedOrder)}
+                    >
+                      {syncingInventory ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Sync Inventory
+                    </Button>
+                  </div>
+                ) : null
               )}
 
               {/* Order Items */}

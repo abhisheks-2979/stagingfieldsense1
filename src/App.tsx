@@ -132,6 +132,7 @@ import DistributorDetail from "./pages/DistributorDetail";
 import EditDistributor from "./pages/EditDistributor";
 import PrimaryOrders from "./pages/PrimaryOrders";
 import ResetPassword from "./pages/ResetPassword";
+import ChangePassword from "./pages/ChangePassword";
 
 // Distributor Portal Pages
 import DistributorLogin from "./pages/distributor-portal/DistributorLogin";
@@ -144,7 +145,10 @@ import PrimaryOrderDetail from "./pages/distributor-portal/PrimaryOrderDetail";
 import DistributorInventory from "./pages/distributor-portal/DistributorInventory";
 import SecondarySales from "./pages/distributor-portal/SecondarySales";
 import PackingList from "./pages/distributor-portal/PackingList";
+import PackingListManagement from "./pages/distributor-portal/PackingListManagement";
+import PackingListDetail from "./pages/distributor-portal/PackingListDetail";
 import GoodsReceipt from "./pages/distributor-portal/GoodsReceipt";
+import GoodsReceiptList from "./pages/distributor-portal/GoodsReceiptList";
 import DistributorClaims from "./pages/distributor-portal/DistributorClaims";
 import DistributorSupport from "./pages/distributor-portal/DistributorSupport";
 import DistributorIdeas from "./pages/distributor-portal/DistributorIdeas";
@@ -155,6 +159,9 @@ import RetailerReturns from "./pages/distributor-portal/RetailerReturns";
 import CompanyReturns from "./pages/distributor-portal/CompanyReturns";
 import InventoryLedger from "./pages/distributor-portal/InventoryLedger";
 import StockAdjustments from "./pages/distributor-portal/StockAdjustments";
+import DeliveryRun from "./pages/DeliveryRun";
+import PackingListManagementPage from "./pages/PackingListManagement";
+import PackingListDetailPage from "./pages/PackingListDetail";
 
 // Institutional Sales pages
 import InstitutionalSalesDashboard from "./pages/institutional/InstitutionalSalesDashboard";
@@ -299,6 +306,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/auth" element={<RoleBasedAuthPage />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/auth/complete-profile" element={<CompleteProfile />} />
         <Route path="/dashboard" element={<ProtectedRoute><Index /></ProtectedRoute>} />
         
@@ -407,8 +415,10 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
           <Route path="inventory" element={<DistributorInventory />} />
           <Route path="secondary-sales" element={<SecondarySales />} />
           <Route path="packing-list" element={<PackingList />} />
+          <Route path="packing-list-management" element={<PackingListManagement />} />
+          <Route path="packing-list/:id" element={<PackingListDetail />} />
           <Route path="goods-receipt/:orderId" element={<GoodsReceipt />} />
-          <Route path="goods-receipt" element={<GoodsReceipt />} />
+          <Route path="goods-receipt" element={<GoodsReceiptList />} />
           <Route path="claims" element={<DistributorClaims />} />
           <Route path="support" element={<DistributorSupport />} />
           <Route path="ideas" element={<DistributorIdeas />} />
@@ -420,6 +430,11 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
           <Route path="inventory-ledger" element={<InventoryLedger />} />
           <Route path="stock-adjustments" element={<StockAdjustments />} />
         </Route>
+
+        {/* D-1 Delivery Module Routes - Main App */}
+        <Route path="/packing-list-management" element={<ProtectedRoute><PackingListManagementPage /></ProtectedRoute>} />
+        <Route path="/packing-list/:id" element={<ProtectedRoute><PackingListDetailPage /></ProtectedRoute>} />
+        <Route path="/delivery-run" element={<ProtectedRoute><DeliveryRun /></ProtectedRoute>} />
 
         {/* Institutional Sales Routes */}
         <Route path="/institutional-sales" element={<ProtectedRoute><InstitutionalSalesDashboard /></ProtectedRoute>} />

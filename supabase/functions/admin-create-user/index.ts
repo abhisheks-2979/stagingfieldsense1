@@ -27,8 +27,6 @@ serve(async (req) => {
 
     // Verify admin role
     const authHeader = req.headers.get('Authorization')
-    console.log('Auth header present:', !!authHeader)
-    
     if (!authHeader) {
       console.error('No authorization header provided')
       return new Response(
@@ -96,8 +94,7 @@ serve(async (req) => {
       education,
       emergency_contact_number,
       band,
-      tenant_id,
-      tenant_role = 'member'
+      is_temporary_password
     } = await req.json()
 
     console.log('Creating user with email:', email)
@@ -110,108 +107,142 @@ serve(async (req) => {
       )
     }
 
-    // Validate tenant_id is provided
-    if (!tenant_id) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required field: tenant_id is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    // Check if user already exists
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    const existingUser = existingUsers?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase())
+    
+    let authUserId: string
+    
+    if (existingUser) {
+      console.log('User already exists, updating:', existingUser.id)
+      
+      // Update existing user's password and metadata
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+        password,
+        user_metadata: {
+          username,
+          full_name,
+          phone_number,
+          recovery_email,
+          hint_question,
+          hint_answer
+        }
+      })
+      
+      if (updateError) {
+        console.error('User update error:', updateError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to update existing user', 
+            details: updateError.message 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
+      authUserId = existingUser.id
+      
+      // Check if employee record already exists
+      const { data: existingEmployee } = await supabaseAdmin
+        .from('employees')
+        .select('id')
+        .eq('user_id', existingUser.id)
+        .single()
+      
+      if (existingEmployee) {
+        console.log('Employee record already exists, updating')
+        const { error: empUpdateError } = await supabaseAdmin
+          .from('employees')
+          .update({
+            monthly_salary: monthly_salary || 0,
+            daily_da_allowance: daily_da_allowance || 0,
+            manager_id: manager_id || null,
+            hq: hq || null,
+            date_of_joining: date_of_joining || null,
+            date_of_exit: date_of_exit || null,
+            alternate_email: alternate_email || null,
+            address: address || null,
+            education: education || null,
+            emergency_contact_number: emergency_contact_number || null,
+            band: band || null
+          })
+          .eq('user_id', existingUser.id)
+        
+        if (empUpdateError) {
+          console.error('Employee update error:', empUpdateError)
+        }
+        
+        // Update must_change_password flag if using temporary password
+        if (is_temporary_password) {
+          const { error: profileUpdateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ must_change_password: true })
+            .eq('id', existingUser.id)
+          
+          if (profileUpdateError) {
+            console.error('Profile update error:', profileUpdateError)
+          }
+        }
+        
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            message: 'User updated successfully',
+            user: {
+              id: existingUser.id,
+              email: existingUser.email,
+              username,
+              full_name
+            }
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    } else {
+      // Create new auth user
+      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        user_metadata: {
+          username,
+          full_name,
+          phone_number,
+          recovery_email,
+          hint_question,
+          hint_answer
+        },
+        email_confirm: true
+      })
 
-    // Validate tenant exists and is active
-    const { data: tenantData, error: tenantError } = await supabaseAdmin
-      .from('tenants')
-      .select('id, name, is_active')
-      .eq('id', tenant_id)
-      .single()
+      if (authError) {
+        console.error('Auth creation error:', authError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to create user account', 
+            details: authError.message 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
 
-    if (tenantError || !tenantData) {
-      console.error('Tenant validation error:', tenantError)
-      return new Response(
-        JSON.stringify({ error: 'Invalid tenant selected' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    if (!tenantData.is_active) {
-      return new Response(
-        JSON.stringify({ error: 'Selected tenant is not active' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    console.log('Tenant validated:', tenantData.name)
-
-    // Create the auth user
-    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      user_metadata: {
-        username,
-        full_name,
-        phone_number,
-        recovery_email,
-        hint_question,
-        hint_answer
-      },
-      email_confirm: true
-    })
-
-    if (authError) {
-      console.error('Auth creation error:', authError)
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to create user account', 
-          details: authError.message 
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    if (!authUser.user) {
-      console.error('User creation returned no user object')
-      return new Response(
-        JSON.stringify({ error: 'User creation failed - no user returned' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      if (!authUser.user) {
+        console.error('User creation returned no user object')
+        return new Response(
+          JSON.stringify({ error: 'User creation failed - no user returned' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
+      authUserId = authUser.user.id
     }
 
     console.log('Auth user created:', authUser.user.id)
 
-    // Create profile record first
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .insert({
-        id: authUser.user.id,
-        username: username,
-        full_name: full_name,
-        phone_number: phone_number || null,
-        recovery_email: recovery_email || null,
-        hint_question: hint_question || null,
-        hint_answer: hint_answer || null,
-        user_status: 'active'
-      })
-
-    if (profileError) {
-      console.error('Profile creation error:', profileError)
-      // Clean up auth user if profile creation fails
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to create user profile', 
-          details: profileError.message 
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    console.log('Profile record created successfully')
-
-    // Create employee record
+    // Create employee record for new user
     const { error: employeeError } = await supabaseAdmin
       .from('employees')
       .insert({
-        user_id: authUser.user.id,
+        user_id: authUserId,
         monthly_salary: monthly_salary || 0,
         daily_da_allowance: daily_da_allowance || 0,
         manager_id: manager_id || null,
@@ -227,9 +258,10 @@ serve(async (req) => {
 
     if (employeeError) {
       console.error('Employee creation error:', employeeError)
-      // Clean up profile and auth user if employee creation fails
-      await supabaseAdmin.from('profiles').delete().eq('id', authUser.user.id)
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
+      // Clean up auth user if employee creation fails (only for new users)
+      if (!existingUser) {
+        await supabaseAdmin.auth.admin.deleteUser(authUserId)
+      }
       return new Response(
         JSON.stringify({ 
           error: 'Failed to create employee record', 
@@ -241,48 +273,26 @@ serve(async (req) => {
 
     console.log('Employee record created successfully')
 
-    // Assign user to tenant
-    const validRoles = ['owner', 'admin', 'member']
-    const role = validRoles.includes(tenant_role) ? tenant_role : 'member'
-    
-    const { error: tenantUserError } = await supabaseAdmin
-      .from('tenant_users')
-      .insert({
-        tenant_id: tenant_id,
-        user_id: authUser.user.id,
-        role: role
-      })
-
-    if (tenantUserError) {
-      console.error('Tenant user assignment error:', tenantUserError)
-      // Clean up employee, profile and auth user if tenant assignment fails
-      await supabaseAdmin.from('employees').delete().eq('user_id', authUser.user.id)
-      await supabaseAdmin.from('profiles').delete().eq('id', authUser.user.id)
-      await supabaseAdmin.auth.admin.deleteUser(authUser.user.id)
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to assign user to tenant', 
-          details: tenantUserError.message 
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // Set must_change_password flag if using temporary password
+    if (is_temporary_password) {
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from('profiles')
+        .update({ must_change_password: true })
+        .eq('id', authUserId)
+      
+      if (profileUpdateError) {
+        console.error('Profile update error for must_change_password:', profileUpdateError)
+      }
     }
-
-    console.log('User assigned to tenant successfully:', tenantData.name, 'with role:', role)
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         user: {
-          id: authUser.user.id,
-          email: authUser.user.email,
+          id: authUserId,
+          email,
           username,
-          full_name,
-          tenant: {
-            id: tenant_id,
-            name: tenantData.name,
-            role: role
-          }
+          full_name
         }
       }),
       { 
@@ -291,11 +301,11 @@ serve(async (req) => {
       }
     )
 
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Error creating user:', error)
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Failed to create user'
+        error: error.message || 'Failed to create user' 
       }),
       { 
         status: 500, 

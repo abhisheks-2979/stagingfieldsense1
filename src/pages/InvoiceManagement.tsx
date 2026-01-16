@@ -1,9 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, FileText, ListOrdered } from "lucide-react";
+import { ArrowLeft, FileText, ListOrdered, Settings2 } from "lucide-react";
 import InvoiceTemplateSelector from "@/components/invoice/InvoiceTemplateSelector";
 import AllInvoicesList from "@/components/invoice/AllInvoicesList";
+import InvoiceDisplaySettings from "@/components/invoice/InvoiceDisplaySettings";
 import { Layout } from "@/components/Layout";
 
 export default function InvoiceManagement() {
@@ -28,17 +29,27 @@ export default function InvoiceManagement() {
           </div>
         </div>
 
-        <Tabs defaultValue="template" className="space-y-4">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+        <Tabs defaultValue="display-settings" className="space-y-4">
+          <TabsList className="grid w-full max-w-lg grid-cols-3">
+            <TabsTrigger value="display-settings" className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Display Settings</span>
+              <span className="sm:hidden">Settings</span>
+            </TabsTrigger>
             <TabsTrigger value="template" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Invoice Template
+              Template
             </TabsTrigger>
             <TabsTrigger value="invoices" className="flex items-center gap-2">
               <ListOrdered className="h-4 w-4" />
-              All Invoices
+              <span className="hidden sm:inline">All Invoices</span>
+              <span className="sm:hidden">Invoices</span>
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="display-settings">
+            <InvoiceDisplaySettings />
+          </TabsContent>
 
           <TabsContent value="template">
             <InvoiceTemplateSelector />

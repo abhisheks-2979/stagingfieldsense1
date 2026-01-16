@@ -142,6 +142,10 @@ export const MyBeats = () => {
   const [showOptionsDialog, setShowOptionsDialog] = useState(false);
   const [createdBeatData, setCreatedBeatData] = useState<{beatId: string; beatName: string} | null>(null);
   
+  // Delete state
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [affectedRetailerCount, setAffectedRetailerCount] = useState(0);
+  
   // Delete confirmation dialog
   const { isOpen: isDeleteOpen, itemId: deleteItemId, itemName: deleteItemName, openDeleteDialog, closeDeleteDialog, setOpen: setDeleteOpen } = useDeleteConfirm();
 
@@ -786,7 +790,20 @@ export const MyBeats = () => {
     loadAllRetailers();
   };
 
-  const handleDeleteBeatClick = (beatId: string, beatName: string) => {
+  const handleDeleteBeatClick = async (beatId: string, beatName: string) => {
+    // Count retailers that will be unassigned
+    try {
+      const { count } = await supabase
+        .from('retailers')
+        .select('id', { count: 'exact', head: true })
+        .eq('beat_id', beatId)
+        .eq('user_id', user?.id);
+      
+      setAffectedRetailerCount(count || 0);
+    } catch (error) {
+      console.error('Error counting affected retailers:', error);
+      setAffectedRetailerCount(0);
+    }
     openDeleteDialog(beatId, beatName);
   };
 
@@ -795,6 +812,8 @@ export const MyBeats = () => {
       closeDeleteDialog();
       return;
     }
+
+    setIsDeleting(true);
 
     try {
       // Get beat data for recycle bin
@@ -809,7 +828,7 @@ export const MyBeats = () => {
         });
       }
 
-      // Update retailers to remove beat assignment
+      // Update retailers to remove beat assignment (retailers.beat_id is NOT NULL, use 'unassigned')
       const { error: retailerError } = await supabase
         .from('retailers')
         .update({ 
@@ -821,14 +840,13 @@ export const MyBeats = () => {
 
       if (retailerError) throw retailerError;
 
-      // Delete beat plan if exists for this user
+      // Delete ALL beat plans for this beat (not just for current user)
       const { error: planError } = await supabase
         .from('beat_plans')
         .delete()
-        .eq('beat_id', deleteItemId)
-        .eq('user_id', user.id);
+        .eq('beat_id', deleteItemId);
 
-      if (planError) console.error('Error deleting beat plan:', planError);
+      if (planError) console.error('Error deleting beat plans:', planError);
 
       // Delete beat allowance if exists for this user
       const { error: allowanceError } = await supabase
@@ -843,9 +861,13 @@ export const MyBeats = () => {
       const { error: beatError } = await supabase
         .from('beats')
         .update({ is_active: false })
-        .eq('id', deleteItemId);
+        .eq('beat_id', deleteItemId)
+        .eq('created_by', user.id);
 
-      if (beatError) console.error('Error marking beat as inactive:', beatError);
+      if (beatError) throw beatError;
+
+      // IMMEDIATE UI UPDATE - remove from state right away
+      setBeats(prev => prev.filter(b => b.id !== deleteItemId));
 
       // Clear offline cache for this beat's plans
       const cachedPlans = await offlineStorage.getAll(STORES.BEAT_PLANS);
@@ -869,19 +891,34 @@ export const MyBeats = () => {
         });
       }
 
-      toast.success(`Beat "${deleteItemName}" moved to recycle bin`);
+      // Clear My Visits snapshots for today and upcoming days (beat plans may span multiple dates)
+      const today = new Date();
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(today);
+        date.setDate(date.getDate() + i);
+        const dateStr = date.toISOString().split('T')[0];
+        const { clearMyVisitsSnapshot } = await import('@/lib/myVisitsSnapshot');
+        await clearMyVisitsSnapshot(user.id, dateStr);
+      }
+
+      toast.success(`Beat "${deleteItemName}" deleted successfully`);
       
-      // Dispatch event to refresh My Visits page
+      // Dispatch events to refresh other components - force full reload
       window.dispatchEvent(new CustomEvent('visitDataChanged'));
+      window.dispatchEvent(new CustomEvent('beatDeleted', { detail: { beatId: deleteItemId } }));
+      window.dispatchEvent(new CustomEvent('forceVisitsRefresh'));
       
-      // Reload data
-      loadBeats();
+      // Reload retailers to update unassigned count
       loadAllRetailers();
     } catch (error) {
       console.error('Error deleting beat:', error);
       toast.error('Failed to delete beat');
+      // Reload to ensure consistent state
+      loadBeats();
     } finally {
+      setIsDeleting(false);
       closeDeleteDialog();
+      setAffectedRetailerCount(0);
     }
   };
 
@@ -971,18 +1008,20 @@ export const MyBeats = () => {
           <CardHeader className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* User Selector inline with title */}
-                  <UserSelector
-                    selectedUserId={selectedUserId}
-                    onUserChange={setSelectedUserId}
-                    showAllOption={true}
-                    allOptionLabel="All Team"
-                    className="h-7 min-w-[100px] max-w-[140px] text-xs bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground [&>span]:text-primary-foreground"
-                  />
+                <div className="flex flex-col">
                   <CardTitle className="text-2xl font-bold">My Beats</CardTitle>
+                  <p className="text-primary-foreground/80 mt-1">Manage your sales territories and routes</p>
+                  <div className="flex items-center gap-2 flex-wrap mt-2">
+                    {/* User Selector below title */}
+                    <UserSelector
+                      selectedUserId={selectedUserId}
+                      onUserChange={setSelectedUserId}
+                      showAllOption={true}
+                      allOptionLabel="All Team"
+                      className="h-7 min-w-[100px] max-w-[140px] text-xs bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground [&>span]:text-primary-foreground"
+                    />
+                  </div>
                 </div>
-                <p className="text-primary-foreground/80 mt-1">Manage your sales territories and routes</p>
               </div>
               <Button 
                 onClick={handleCreateBeat}
@@ -1675,7 +1714,8 @@ export const MyBeats = () => {
           onOpenChange={setDeleteOpen}
           onConfirm={handleConfirmDeleteBeat}
           title="Delete Beat"
-          description={`Are you sure you want to delete "${deleteItemName}"? It will be moved to the recycle bin and can be restored later.`}
+          description={`Are you sure you want to delete "${deleteItemName}"?${affectedRetailerCount > 0 ? ` ${affectedRetailerCount} retailer(s) will be unassigned from this beat.` : ''} It will be moved to the recycle bin and can be restored later.`}
+          isLoading={isDeleting}
         />
       </div>
     </Layout>

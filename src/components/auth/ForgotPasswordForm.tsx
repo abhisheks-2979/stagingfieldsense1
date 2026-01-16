@@ -9,6 +9,13 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Mail, Phone, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const emailSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -21,10 +28,30 @@ const phoneSchema = z.object({
 type EmailFormData = z.infer<typeof emailSchema>;
 type PhoneFormData = z.infer<typeof phoneSchema>;
 
+const countryCodes = [
+  { code: '+91', country: 'India', flag: '🇮🇳' },
+  { code: '+1', country: 'USA', flag: '🇺🇸' },
+  { code: '+44', country: 'UK', flag: '🇬🇧' },
+  { code: '+971', country: 'UAE', flag: '🇦🇪' },
+  { code: '+65', country: 'Singapore', flag: '🇸🇬' },
+  { code: '+60', country: 'Malaysia', flag: '🇲🇾' },
+  { code: '+966', country: 'Saudi Arabia', flag: '🇸🇦' },
+  { code: '+974', country: 'Qatar', flag: '🇶🇦' },
+  { code: '+968', country: 'Oman', flag: '🇴🇲' },
+  { code: '+973', country: 'Bahrain', flag: '🇧🇭' },
+  { code: '+977', country: 'Nepal', flag: '🇳🇵' },
+  { code: '+880', country: 'Bangladesh', flag: '🇧🇩' },
+  { code: '+94', country: 'Sri Lanka', flag: '🇱🇰' },
+  { code: '+61', country: 'Australia', flag: '🇦🇺' },
+  { code: '+49', country: 'Germany', flag: '🇩🇪' },
+  { code: '+33', country: 'France', flag: '🇫🇷' },
+];
+
 export const ForgotPasswordForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [activeTab, setActiveTab] = useState<'email' | 'phone'>('email');
+  const [countryCode, setCountryCode] = useState('+91');
 
   const emailForm = useForm<EmailFormData>({
     resolver: zodResolver(emailSchema),
@@ -39,6 +66,22 @@ export const ForgotPasswordForm = () => {
   const onEmailSubmit = async (data: EmailFormData) => {
     setIsLoading(true);
     try {
+      // First validate if email exists in the system
+      const { data: validation, error: validationError } = await supabase.functions.invoke('validate-reset-email', {
+        body: { email: data.email }
+      });
+
+      if (validationError) {
+        toast.error('Failed to validate email. Please try again.');
+        return;
+      }
+
+      if (!validation?.exists) {
+        toast.error('This email is not registered in the organization');
+        return;
+      }
+
+      // Email exists, proceed with reset
       const redirectUrl = `${window.location.origin}/reset-password`;
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
         redirectTo: redirectUrl,
@@ -61,12 +104,17 @@ export const ForgotPasswordForm = () => {
   const onPhoneSubmit = async (data: PhoneFormData) => {
     setIsLoading(true);
     try {
+      // Combine country code with phone number
+      const fullPhoneNumber = countryCode + data.phoneNumber.replace(/\D/g, '');
+      
       const { data: result, error } = await supabase.functions.invoke('send-password-reset-sms', {
-        body: { phone_number: data.phoneNumber },
+        body: { phone_number: fullPhoneNumber },
       });
 
       if (error) {
         toast.error('Failed to send reset SMS. Please try again.');
+      } else if (result?.notFound) {
+        toast.error('This phone number is not linked to any account in the organization');
       } else if (result?.error) {
         toast.error(result.error);
       } else {
@@ -157,11 +205,32 @@ export const ForgotPasswordForm = () => {
                   <FormItem>
                     <FormLabel>Phone Number</FormLabel>
                     <FormControl>
-                      <Input
-                        type="tel"
-                        placeholder="Enter your phone number"
-                        {...field}
-                      />
+                      <div className="flex gap-2">
+                        <Select value={countryCode} onValueChange={setCountryCode}>
+                          <SelectTrigger className="w-[120px] flex-shrink-0">
+                            <SelectValue>
+                              {countryCodes.find(c => c.code === countryCode)?.flag} {countryCode}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="bg-background z-50">
+                            {countryCodes.map((country) => (
+                              <SelectItem key={country.code} value={country.code}>
+                                <span className="flex items-center gap-2">
+                                  <span>{country.flag}</span>
+                                  <span>{country.code}</span>
+                                  <span className="text-muted-foreground text-xs">({country.country})</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="tel"
+                          placeholder="Enter your phone number"
+                          className="flex-1"
+                          {...field}
+                        />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
