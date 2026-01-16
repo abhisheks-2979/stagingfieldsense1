@@ -126,6 +126,7 @@ import RecycleBinAdmin from "./pages/admin/RecycleBinAdmin";
 import DistributorPortalAdmin from "./pages/admin/DistributorPortalAdmin";
 import TargetVsActual from "./pages/admin/TargetVsActual";
 import HierarchyTargets from "./pages/admin/HierarchyTargets";
+import TenantManagement from "./pages/admin/TenantManagement";
 import MyTargets from "./pages/MyTargets";
 import MyTarget from "./pages/MyTarget";
 import TeamTargets from "./pages/TeamTargets";
@@ -321,6 +322,7 @@ const AppContent = ({ hasError }: { hasError: boolean }) => {
         <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
         <Route path="/admin-controls" element={<ProtectedRoute><AdminControls /></ProtectedRoute>} />
+        <Route path="/admin/tenants" element={<ProtectedRoute><TenantManagement /></ProtectedRoute>} />
         <Route path="/feature-management" element={<ProtectedRoute><FeatureManagement /></ProtectedRoute>} />
         <Route path="/push-content-setup" element={<ProtectedRoute><PushContentSetup /></ProtectedRoute>} />
         <Route path="/user_roles" element={<ProtectedRoute><UserRoles /></ProtectedRoute>} />
