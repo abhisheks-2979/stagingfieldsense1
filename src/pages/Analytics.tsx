@@ -194,14 +194,15 @@ const Analytics = () => {
     '#14b8a6', '#a855f7', '#22c55e', '#eab308', '#e11d48'
   ];
 
-  // Product Revenue Performance state
+  // Product Revenue Performance state (all users - automatic fetch)
   const [productRevenueUser, setProductRevenueUser] = useState<string>('');
   const [productRevenueData, setProductRevenueData] = useState<any[]>([]);
   const [productRevenueLoading, setProductRevenueLoading] = useState(false);
   const [productRevenueDateRange, setProductRevenueDateRange] = useState<{ from: Date; to: Date }>({
-    from: subDays(new Date(), 7),
-    to: new Date()
+    from: new Date('2026-01-01'),
+    to: new Date('2026-01-08')
   });
+  const [productRevenueDateOpen, setProductRevenueDateOpen] = useState(false);
 
   // Dashboard data state
   const [dashboardData, setDashboardData] = useState({
@@ -845,31 +846,105 @@ const Analytics = () => {
     }
   }, [productivityUser, productivityDateRange]);
 
-  // Fetch Product Revenue Performance data
+  // Fetch Product Revenue Performance data for all users
   const fetchProductRevenueData = async () => {
-    if (!productRevenueUser) {
-      setProductRevenueData([]);
-      return;
-    }
-    
     setProductRevenueLoading(true);
     try {
-      const { data, error } = await (supabase as any).rpc('get_product_revenue_performance', {
-        user_full_name: productRevenueUser,
-        start_date: format(productRevenueDateRange.from, 'yyyy-MM-dd'),
-        end_date: format(productRevenueDateRange.to, 'yyyy-MM-dd')
-      });
+      const fromDate = format(productRevenueDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(productRevenueDateRange.to, 'yyyy-MM-dd');
 
-      if (error) {
-        console.error('Error fetching product revenue report:', error);
+      // Fetch orders in date range
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, order_date, user_id')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate);
+
+      if (ordersError) {
+        console.error('Error fetching orders:', ordersError);
         setProductRevenueData([]);
-        setProductRevenueLoading(false);
         return;
       }
 
-      // Sort by revenue in descending order
-      const dataArray = Array.isArray(data) ? data : [];
-      const sortedData = dataArray.sort((a: any, b: any) => (b.revenue || 0) - (a.revenue || 0));
+      if (!orders || orders.length === 0) {
+        setProductRevenueData([]);
+        return;
+      }
+
+      const orderIds = orders.map(o => o.id);
+      const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+
+      // Fetch order items for these orders
+      const { data: orderItems, error: itemsError } = await supabase
+        .from('order_items')
+        .select('order_id, product_name, unit, quantity, total')
+        .in('order_id', orderIds);
+
+      if (itemsError) {
+        console.error('Error fetching order items:', itemsError);
+        setProductRevenueData([]);
+        return;
+      }
+
+      // Fetch profiles for users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create maps
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
+      const orderMap: Record<string, { order_date: string; user_id: string }> = {};
+      orders.forEach(o => {
+        orderMap[o.id] = { order_date: o.order_date, user_id: o.user_id };
+      });
+
+      // Group by full_name, order_date, product_name, unit
+      const grouped: Record<string, { 
+        full_name: string; 
+        order_date: string; 
+        product_name: string; 
+        unit: string; 
+        quantity_sold: number; 
+        revenue: number 
+      }> = {};
+
+      orderItems?.forEach(item => {
+        const orderInfo = orderMap[item.order_id];
+        if (!orderInfo) return;
+        
+        const userName = userNameMap[orderInfo.user_id] || 'Unknown';
+        const key = `${userName}|${orderInfo.order_date}|${item.product_name}|${item.unit || 'N/A'}`;
+        
+        if (!grouped[key]) {
+          grouped[key] = {
+            full_name: userName,
+            order_date: orderInfo.order_date,
+            product_name: item.product_name,
+            unit: item.unit || 'N/A',
+            quantity_sold: 0,
+            revenue: 0
+          };
+        }
+        grouped[key].quantity_sold += Number(item.quantity || 0);
+        grouped[key].revenue += Number(item.total || 0);
+      });
+
+      // Sort by order_date, then revenue DESC
+      const sortedData = Object.values(grouped).sort((a, b) => {
+        const dateCompare = a.order_date.localeCompare(b.order_date);
+        if (dateCompare !== 0) return dateCompare;
+        return b.revenue - a.revenue;
+      });
+
       setProductRevenueData(sortedData);
     } catch (error) {
       console.error('Error in product revenue report:', error);
@@ -879,11 +954,10 @@ const Analytics = () => {
     }
   };
 
+  // Auto-fetch product revenue data on mount and when date changes
   useEffect(() => {
-    if (productRevenueUser) {
-      fetchProductRevenueData();
-    }
-  }, [productRevenueUser, productRevenueDateRange]);
+    fetchProductRevenueData();
+  }, [productRevenueDateRange]);
 
   const handleKpiPeriodChange = (value: string) => {
     setKpiPeriod(value);
@@ -2636,11 +2710,36 @@ const Analytics = () => {
 
               {/* Product and Revenue Performance Section */}
               <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle>Product and Revenue Performance</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    View product-wise quantity sold and revenue
-                  </p>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <div>
+                    <CardTitle>Product and Revenue Performance</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      View product-wise quantity sold and revenue by user and date
+                    </p>
+                  </div>
+                  <Popover open={productRevenueDateOpen} onOpenChange={setProductRevenueDateOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 gap-1">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        <span className="text-xs">
+                          {format(productRevenueDateRange.from, 'MMM dd')} - {format(productRevenueDateRange.to, 'MMM dd, yyyy')}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <Calendar
+                        mode="range"
+                        selected={{ from: productRevenueDateRange.from, to: productRevenueDateRange.to }}
+                        onSelect={(range) => {
+                          if (range?.from && range?.to) {
+                            setProductRevenueDateRange({ from: range.from, to: range.to });
+                            setProductRevenueDateOpen(false);
+                          }
+                        }}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </CardHeader>
                 <CardContent className="space-y-4">
 
@@ -2656,9 +2755,10 @@ const Analytics = () => {
                         <thead className="bg-muted/50">
                             <tr className="border-b">
                               <th className="text-left p-3 text-sm font-medium">Full Name</th>
+                              <th className="text-left p-3 text-sm font-medium">Order Date</th>
                               <th className="text-left p-3 text-sm font-medium">Product Name</th>
                               <th className="text-left p-3 text-sm font-medium">Unit</th>
-                              <th className="text-right p-3 text-sm font-medium">Quantity Sold</th>
+                              <th className="text-right p-3 text-sm font-medium">Qty Sold</th>
                               <th className="text-right p-3 text-sm font-medium">Order in KG</th>
                               <th className="text-right p-3 text-sm font-medium">Revenue</th>
                             </tr>
@@ -2672,6 +2772,7 @@ const Analytics = () => {
                               return (
                                 <tr key={index} className="border-b hover:bg-muted/30">
                                   <td className="p-3 text-sm font-medium">{row.full_name}</td>
+                                  <td className="p-3 text-sm">{format(new Date(row.order_date), 'MMM dd, yyyy')}</td>
                                   <td className="p-3 text-sm">{row.product_name}</td>
                                   <td className="p-3 text-sm">{row.unit || '-'}</td>
                                   <td className="p-3 text-sm text-right">{row.quantity_sold}</td>
@@ -2683,7 +2784,7 @@ const Analytics = () => {
                           </tbody>
                           <tfoot className="bg-muted/30">
                             <tr>
-                              <td className="p-3 text-sm font-semibold" colSpan={3}>Total</td>
+                              <td className="p-3 text-sm font-semibold" colSpan={4}>Total</td>
                               <td className="p-3 text-sm text-right font-bold">
                                 {productRevenueData.reduce((sum, row) => sum + Number(row.quantity_sold), 0)}
                               </td>
@@ -2701,18 +2802,23 @@ const Analytics = () => {
                         </table>
                       </div>
 
-                      {/* Revenue Distribution Pie Chart */}
+                      {/* Revenue Distribution Pie Chart by Product */}
                       <div className="mt-6">
-                        <h4 className="text-sm font-medium mb-4">Revenue Distribution by Product for {productRevenueUser}</h4>
+                        <h4 className="text-sm font-medium mb-4">Revenue Distribution by Product</h4>
                         <div className="h-[300px]">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie
-                                data={productRevenueData.map((row, index) => ({
-                                  name: row.product_name,
-                                  value: Number(row.revenue),
-                                  fill: `hsl(${(index * 360) / productRevenueData.length}, 70%, 50%)`
-                                }))}
+                                data={(() => {
+                                  // Aggregate revenue by product
+                                  const productRevenue: Record<string, number> = {};
+                                  productRevenueData.forEach(row => {
+                                    productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                  });
+                                  return Object.entries(productRevenue)
+                                    .map(([name, value], index) => ({ name, value }))
+                                    .sort((a, b) => b.value - a.value);
+                                })()}
                                 cx="50%"
                                 cy="50%"
                                 labelLine={false}
@@ -2721,9 +2827,15 @@ const Analytics = () => {
                                 dataKey="value"
                                 fontSize={9}
                               >
-                                {productRevenueData.map((_, index) => (
-                                  <Cell key={`cell-${index}`} fill={`hsl(${(index * 360) / productRevenueData.length}, 70%, 50%)`} />
-                                ))}
+                                {(() => {
+                                  const productRevenue: Record<string, number> = {};
+                                  productRevenueData.forEach(row => {
+                                    productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                  });
+                                  return Object.keys(productRevenue).map((_, index) => (
+                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                  ));
+                                })()}
                               </Pie>
                               <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
                               <Legend wrapperStyle={{ fontSize: '9px' }} />
@@ -2732,13 +2844,9 @@ const Analytics = () => {
                         </div>
                       </div>
                     </>
-                  ) : productRevenueUser ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No data found for the selected user and date range
-                    </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
-                      Please select a user to view the report
+                      No data found for the selected date range
                     </div>
                   )}
                 </CardContent>
