@@ -510,28 +510,49 @@ const Analytics = () => {
       const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
       const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
 
-      const { data, error } = await supabase
+      // First get all confirmed orders in date range
+      const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select(`
-          total_amount,
-          user_id,
-          profiles!orders_user_id_fkey(full_name)
-        `)
+        .select('total_amount, user_id')
         .eq('status', 'confirmed')
         .gte('order_date', fromDate)
         .lte('order_date', toDate);
 
-      if (error) {
-        console.error('Error fetching order summary by user:', error);
+      if (ordersError) {
+        console.error('Error fetching orders:', ordersError);
         setOrderSummaryByUserData([]);
         return;
       }
 
+      if (!orders || orders.length === 0) {
+        setOrderSummaryByUserData([]);
+        return;
+      }
+
+      // Get unique user IDs
+      const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+      
+      // Fetch profiles for these users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      }
+
+      // Create user ID to name map
+      const userNameMap: Record<string, string> = {};
+      profiles?.forEach(p => {
+        userNameMap[p.id] = p.full_name || 'Unknown';
+      });
+
       // Group by user and sum totals
       const userTotals: Record<string, { full_name: string; total_order_value: number }> = {};
       
-      data?.forEach((order: any) => {
-        const userName = order.profiles?.full_name || 'Unknown';
+      orders.forEach((order) => {
+        const userName = userNameMap[order.user_id] || 'Unknown';
         if (!userTotals[userName]) {
           userTotals[userName] = {
             full_name: userName,
