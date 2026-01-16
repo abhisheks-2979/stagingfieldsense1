@@ -18,6 +18,14 @@ import { visitStatusCache } from "@/lib/visitStatusCache";
 import { NetworkProvider } from "@/contexts/NetworkContext";
 import { SlowConnectionBanner } from "@/components/SlowConnectionBanner";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { checkAndClearStaleState } from "@/utils/buildVersionManager";
+
+// Check for stale state immediately on app load (before React renders)
+// This clears navigation customization and other cached data when new code is deployed
+const versionCheck = checkAndClearStaleState();
+if (versionCheck.isNewVersion && versionCheck.clearedKeys.length > 0) {
+  console.log('[App] Fresh deployment detected, cleared stale browser state');
+}
 
 // Initialize visit status cache early to avoid flicker
 visitStatusCache.init();
