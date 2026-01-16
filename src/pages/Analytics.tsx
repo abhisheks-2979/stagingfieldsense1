@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -173,6 +174,25 @@ const Analytics = () => {
     to: new Date('2026-01-08')
   });
   const [productivitySummaryDateOpen, setProductivitySummaryDateOpen] = useState(false);
+
+  // Day-wise detail dialog states for Order Summary
+  const [orderDetailDialogOpen, setOrderDetailDialogOpen] = useState(false);
+  const [orderDetailUser, setOrderDetailUser] = useState<string>('');
+  const [orderDetailData, setOrderDetailData] = useState<{ date: string; day: string; amount: number }[]>([]);
+  const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+
+  // Day-wise detail dialog states for Productivity Summary
+  const [productivityDetailDialogOpen, setProductivityDetailDialogOpen] = useState(false);
+  const [productivityDetailUser, setProductivityDetailUser] = useState<string>('');
+  const [productivityDetailData, setProductivityDetailData] = useState<{ date: string; day: string; productive: number; total: number; percentage: number }[]>([]);
+  const [productivityDetailLoading, setProductivityDetailLoading] = useState(false);
+
+  // Color palette for charts
+  const CHART_COLORS = [
+    '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+    '#ec4899', '#06b6d4', '#84cc16', '#6366f1', '#f97316',
+    '#14b8a6', '#a855f7', '#22c55e', '#eab308', '#e11d48'
+  ];
 
   // Product Revenue Performance state
   const [productRevenueUser, setProductRevenueUser] = useState<string>('');
@@ -672,6 +692,120 @@ const Analytics = () => {
   useEffect(() => {
     fetchProductivityByUser();
   }, [productivitySummaryDateRange]);
+
+  // Fetch day-wise order details for a specific user
+  const fetchOrderDayWiseDetails = async (userName: string) => {
+    setOrderDetailLoading(true);
+    setOrderDetailUser(userName);
+    setOrderDetailDialogOpen(true);
+    try {
+      const fromDate = format(orderSummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(orderSummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Find user ID from name
+      const profile = users.find(u => u.full_name === userName);
+      if (!profile) {
+        setOrderDetailData([]);
+        return;
+      }
+
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('order_date, total_amount')
+        .eq('user_id', profile.id)
+        .eq('status', 'confirmed')
+        .gte('order_date', fromDate)
+        .lte('order_date', toDate)
+        .order('order_date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching day-wise orders:', error);
+        setOrderDetailData([]);
+        return;
+      }
+
+      // Group by date
+      const dayWise: Record<string, number> = {};
+      orders?.forEach(o => {
+        const date = o.order_date;
+        dayWise[date] = (dayWise[date] || 0) + Number(o.total_amount || 0);
+      });
+
+      const result = Object.entries(dayWise).map(([date, amount]) => ({
+        date,
+        day: format(new Date(date), 'EEEE'),
+        amount
+      }));
+
+      setOrderDetailData(result);
+    } catch (error) {
+      console.error('Error in day-wise order fetch:', error);
+      setOrderDetailData([]);
+    } finally {
+      setOrderDetailLoading(false);
+    }
+  };
+
+  // Fetch day-wise productivity details for a specific user
+  const fetchProductivityDayWiseDetails = async (userName: string) => {
+    setProductivityDetailLoading(true);
+    setProductivityDetailUser(userName);
+    setProductivityDetailDialogOpen(true);
+    try {
+      const fromDate = format(productivitySummaryDateRange.from, 'yyyy-MM-dd');
+      const toDate = format(productivitySummaryDateRange.to, 'yyyy-MM-dd');
+
+      // Find user ID from name
+      const profile = users.find(u => u.full_name === userName);
+      if (!profile) {
+        setProductivityDetailData([]);
+        return;
+      }
+
+      const { data: visits, error } = await supabase
+        .from('visits')
+        .select('planned_date, status')
+        .eq('user_id', profile.id)
+        .in('status', ['productive', 'unproductive'])
+        .gte('planned_date', fromDate)
+        .lte('planned_date', toDate)
+        .order('planned_date', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching day-wise productivity:', error);
+        setProductivityDetailData([]);
+        return;
+      }
+
+      // Group by date
+      const dayWise: Record<string, { productive: number; total: number }> = {};
+      visits?.forEach(v => {
+        const date = v.planned_date;
+        if (!dayWise[date]) {
+          dayWise[date] = { productive: 0, total: 0 };
+        }
+        dayWise[date].total++;
+        if (v.status === 'productive') {
+          dayWise[date].productive++;
+        }
+      });
+
+      const result = Object.entries(dayWise).map(([date, data]) => ({
+        date,
+        day: format(new Date(date), 'EEEE'),
+        productive: data.productive,
+        total: data.total,
+        percentage: data.total > 0 ? Math.round((data.productive / data.total) * 100 * 100) / 100 : 0
+      }));
+
+      setProductivityDetailData(result);
+    } catch (error) {
+      console.error('Error in day-wise productivity fetch:', error);
+      setProductivityDetailData([]);
+    } finally {
+      setProductivityDetailLoading(false);
+    }
+  };
 
   // Fetch Productivity Report data
   const fetchProductivityData = async () => {
@@ -2273,7 +2407,8 @@ const Analytics = () => {
                     </div>
                   ) : orderSummaryByUserData.length > 0 ? (
                     <>
-                      {/* Pie Chart */}
+                      {/* Pie Chart - Click on segment for day-wise details */}
+                      <p className="text-xs text-muted-foreground text-center">Click on a segment to view day-wise details</p>
                       <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
@@ -2286,22 +2421,14 @@ const Analytics = () => {
                               outerRadius={120}
                               label={({ full_name, percent }) => `${full_name} (${(percent * 100).toFixed(0)}%)`}
                               labelLine={true}
+                              onClick={(data) => fetchOrderDayWiseDetails(data.full_name)}
+                              style={{ cursor: 'pointer' }}
                             >
                               {orderSummaryByUserData.map((entry, index) => (
                                 <Cell 
                                   key={`cell-${index}`} 
-                                  fill={[
-                                    'hsl(var(--primary))',
-                                    'hsl(var(--chart-2))',
-                                    'hsl(var(--chart-3))',
-                                    'hsl(var(--chart-4))',
-                                    'hsl(var(--chart-5))',
-                                    '#8884d8',
-                                    '#82ca9d',
-                                    '#ffc658',
-                                    '#ff7c43',
-                                    '#a05195'
-                                  ][index % 10]} 
+                                  fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                  style={{ cursor: 'pointer' }}
                                 />
                               ))}
                             </Pie>
@@ -2322,8 +2449,18 @@ const Analytics = () => {
                           </thead>
                           <tbody>
                             {orderSummaryByUserData.map((row, index) => (
-                              <tr key={index} className="border-b hover:bg-muted/30">
-                                <td className="p-3 text-sm">{row.full_name}</td>
+                              <tr 
+                                key={index} 
+                                className="border-b hover:bg-muted/30 cursor-pointer"
+                                onClick={() => fetchOrderDayWiseDetails(row.full_name)}
+                              >
+                                <td className="p-3 text-sm flex items-center gap-2">
+                                  <span 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                  />
+                                  {row.full_name}
+                                </td>
                                 <td className="p-3 text-sm text-right font-semibold">₹{row.total_order_value.toLocaleString()}</td>
                               </tr>
                             ))}
@@ -2389,20 +2526,26 @@ const Analytics = () => {
                     </div>
                   ) : productivityByUserData.length > 0 ? (
                     <>
-                      {/* Horizontal Bar Chart */}
+                      {/* Horizontal Bar Chart - Click on bar for day-wise details */}
+                      <p className="text-xs text-muted-foreground text-center">Click on a bar to view day-wise details</p>
                       <div className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
-                            data={productivityByUserData}
+                            data={productivityByUserData.map((item, index) => ({ ...item, fill: CHART_COLORS[index % CHART_COLORS.length] }))}
                             layout="vertical"
                             margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+                            onClick={(data) => {
+                              if (data && data.activePayload && data.activePayload[0]) {
+                                fetchProductivityDayWiseDetails(data.activePayload[0].payload.full_name);
+                              }
+                            }}
                           >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} fontSize={10} />
                             <YAxis type="category" dataKey="full_name" fontSize={10} width={90} />
                             <Tooltip 
                               formatter={(value: number, name: string) => {
-                                if (name === 'productivity_percentage') return [`${value}%`, 'Productivity'];
+                                if (name === 'Productivity %') return [`${value}%`, 'Productivity'];
                                 if (name === 'productive_visits') return [value, 'Productive Visits'];
                                 if (name === 'total_visits') return [value, 'Total Visits'];
                                 return [value, name];
@@ -2412,9 +2555,17 @@ const Analytics = () => {
                             <Bar 
                               dataKey="productivity_percentage" 
                               name="Productivity %" 
-                              fill="hsl(var(--primary))" 
                               radius={[0, 4, 4, 0]}
-                            />
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {productivityByUserData.map((entry, index) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              ))}
+                            </Bar>
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -2432,8 +2583,18 @@ const Analytics = () => {
                           </thead>
                           <tbody>
                             {productivityByUserData.map((row, index) => (
-                              <tr key={index} className="border-b hover:bg-muted/30">
-                                <td className="p-3 text-sm font-medium">{row.full_name}</td>
+                              <tr 
+                                key={index} 
+                                className="border-b hover:bg-muted/30 cursor-pointer"
+                                onClick={() => fetchProductivityDayWiseDetails(row.full_name)}
+                              >
+                                <td className="p-3 text-sm font-medium flex items-center gap-2">
+                                  <span 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                                  />
+                                  {row.full_name}
+                                </td>
                                 <td className="p-3 text-sm text-right text-green-600 font-medium">{row.productive_visits}</td>
                                 <td className="p-3 text-sm text-right font-medium">{row.total_visits}</td>
                                 <td className="p-3 text-sm text-right font-semibold">
@@ -2626,6 +2787,116 @@ const Analytics = () => {
             data={pendingPaymentDetails}
             isLoading={detailsLoading}
           />
+
+          {/* Order Summary Day-wise Detail Dialog */}
+          <Dialog open={orderDetailDialogOpen} onOpenChange={setOrderDetailDialogOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Day-wise Order Details - {orderDetailUser}</DialogTitle>
+              </DialogHeader>
+              {orderDetailLoading ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                  <p className="text-muted-foreground">Loading...</p>
+                </div>
+              ) : orderDetailData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-muted/50">
+                      <tr className="border-b">
+                        <th className="text-left p-2 text-sm font-medium">Date</th>
+                        <th className="text-left p-2 text-sm font-medium">Day</th>
+                        <th className="text-right p-2 text-sm font-medium">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderDetailData.map((row, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                          <td className="p-2 text-sm">{row.day}</td>
+                          <td className="p-2 text-sm text-right font-semibold">₹{row.amount.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted/30">
+                      <tr>
+                        <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                        <td className="p-2 text-sm text-right font-bold text-primary">
+                          ₹{orderDetailData.reduce((sum, row) => sum + row.amount, 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">No orders found</div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Productivity Summary Day-wise Detail Dialog */}
+          <Dialog open={productivityDetailDialogOpen} onOpenChange={setProductivityDetailDialogOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Day-wise Productivity - {productivityDetailUser}</DialogTitle>
+              </DialogHeader>
+              {productivityDetailLoading ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                  <p className="text-muted-foreground">Loading...</p>
+                </div>
+              ) : productivityDetailData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-muted/50">
+                      <tr className="border-b">
+                        <th className="text-left p-2 text-sm font-medium">Date</th>
+                        <th className="text-left p-2 text-sm font-medium">Day</th>
+                        <th className="text-right p-2 text-sm font-medium">Productive</th>
+                        <th className="text-right p-2 text-sm font-medium">Total</th>
+                        <th className="text-right p-2 text-sm font-medium">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productivityDetailData.map((row, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-2 text-sm">{format(new Date(row.date), 'MMM dd, yyyy')}</td>
+                          <td className="p-2 text-sm">{row.day}</td>
+                          <td className="p-2 text-sm text-right text-green-600 font-medium">{row.productive}</td>
+                          <td className="p-2 text-sm text-right">{row.total}</td>
+                          <td className="p-2 text-sm text-right font-semibold">
+                            <span className={row.percentage >= 70 ? 'text-green-600' : row.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}>
+                              {row.percentage}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted/30">
+                      <tr>
+                        <td colSpan={2} className="p-2 text-sm font-semibold">Total</td>
+                        <td className="p-2 text-sm text-right font-bold text-green-600">
+                          {productivityDetailData.reduce((sum, row) => sum + row.productive, 0)}
+                        </td>
+                        <td className="p-2 text-sm text-right font-bold">
+                          {productivityDetailData.reduce((sum, row) => sum + row.total, 0)}
+                        </td>
+                        <td className="p-2 text-sm text-right font-bold text-primary">
+                          {(() => {
+                            const totalProductive = productivityDetailData.reduce((sum, row) => sum + row.productive, 0);
+                            const totalVisits = productivityDetailData.reduce((sum, row) => sum + row.total, 0);
+                            return totalVisits > 0 ? Math.round((totalProductive / totalVisits) * 100) : 0;
+                          })()}%
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">No visits found</div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </Layout>
