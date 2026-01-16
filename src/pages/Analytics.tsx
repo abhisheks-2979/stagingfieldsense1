@@ -180,6 +180,9 @@ const Analytics = () => {
   const [productivityDetailData, setProductivityDetailData] = useState<{ date: string; day: string; productive: number; total: number; percentage: number }[]>([]);
   const [productivityDetailLoading, setProductivityDetailLoading] = useState(false);
 
+  // Product Revenue detail panel state (inline)
+  const [productRevenueDetailUser, setProductRevenueDetailUser] = useState<string>('');
+
   // Color palette for charts
   const CHART_COLORS = [
     '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
@@ -2875,7 +2878,7 @@ const Analytics = () => {
                   <div>
                     <CardTitle>Product and Revenue Performance</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      View product-wise quantity sold and revenue by user and date
+                      Click on user segments to view detailed product breakdown
                     </p>
                   </div>
                 </CardHeader>
@@ -2887,101 +2890,214 @@ const Analytics = () => {
                       <p className="text-muted-foreground">Loading data...</p>
                     </div>
                   ) : productRevenueData.length > 0 ? (
-                    <>
-                      <div className="overflow-x-auto border rounded-lg">
-                        <table className="w-full">
-                        <thead className="bg-muted/50">
-                            <tr className="border-b">
-                              <th className="text-left p-3 text-sm font-medium">Full Name</th>
-                              <th className="text-left p-3 text-sm font-medium">Order Date</th>
-                              <th className="text-left p-3 text-sm font-medium">Product Name</th>
-                              <th className="text-left p-3 text-sm font-medium">Unit</th>
-                              <th className="text-right p-3 text-sm font-medium">Qty Sold</th>
-                              <th className="text-right p-3 text-sm font-medium">Order in KG</th>
-                              <th className="text-right p-3 text-sm font-medium">Revenue</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {productRevenueData.map((row, index) => {
-                              const quantitySold = Number(row.quantity_sold);
-                              const orderInKg = row.unit?.toLowerCase() === 'grams' 
-                                ? (quantitySold / 1000).toFixed(2) 
-                                : quantitySold.toFixed(2);
-                              return (
-                                <tr key={index} className="border-b hover:bg-muted/30">
-                                  <td className="p-3 text-sm font-medium">{row.full_name}</td>
-                                  <td className="p-3 text-sm">{format(new Date(row.order_date), 'MMM dd, yyyy')}</td>
-                                  <td className="p-3 text-sm">{row.product_name}</td>
-                                  <td className="p-3 text-sm">{row.unit || '-'}</td>
-                                  <td className="p-3 text-sm text-right">{row.quantity_sold}</td>
-                                  <td className="p-3 text-sm text-right">{orderInKg}</td>
-                                  <td className="p-3 text-sm text-right font-semibold">₹{Number(row.revenue).toLocaleString()}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot className="bg-muted/30">
-                            <tr>
-                              <td className="p-3 text-sm font-semibold" colSpan={4}>Total</td>
-                              <td className="p-3 text-sm text-right font-bold">
-                                {productRevenueData.reduce((sum, row) => sum + Number(row.quantity_sold), 0)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold">
-                                {productRevenueData.reduce((sum, row) => {
-                                  const qty = Number(row.quantity_sold);
-                                  return sum + (row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty);
-                                }, 0).toFixed(2)}
-                              </td>
-                              <td className="p-3 text-sm text-right font-bold text-primary">
-                                ₹{productRevenueData.reduce((sum, row) => sum + Number(row.revenue), 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
+                    <div className="flex gap-4">
+                      {/* Charts Section */}
+                      <div className={cn("transition-all duration-300", productRevenueDetailUser ? "w-1/2" : "w-full")}>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* User-wise Quantity Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">User-wise Quantity (KG)</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const userQuantity: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        const qty = Number(row.quantity_sold);
+                                        const kgQty = row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty;
+                                        userQuantity[row.full_name] = (userQuantity[row.full_name] || 0) + kgQty;
+                                      });
+                                      return Object.entries(userQuantity)
+                                        .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.split(' ')[0]} (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={10}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(data) => {
+                                      if (productRevenueDetailUser === data.name) {
+                                        setProductRevenueDetailUser('');
+                                      } else {
+                                        setProductRevenueDetailUser(data.name);
+                                      }
+                                    }}
+                                  >
+                                    {(() => {
+                                      const userQuantity: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userQuantity[row.full_name] = (userQuantity[row.full_name] || 0) + 1;
+                                      });
+                                      return Object.keys(userQuantity).map((_, index) => (
+                                        <Cell key={`cell-qty-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `${value.toFixed(2)} KG`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
 
-                      {/* Revenue Distribution Pie Chart by Product */}
-                      <div className="mt-6">
-                        <h4 className="text-sm font-medium mb-4">Revenue Distribution by Product</h4>
-                        <div className="h-[300px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={(() => {
-                                  // Aggregate revenue by product
-                                  const productRevenue: Record<string, number> = {};
-                                  productRevenueData.forEach(row => {
-                                    productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
-                                  });
-                                  return Object.entries(productRevenue)
-                                    .map(([name, value], index) => ({ name, value }))
-                                    .sort((a, b) => b.value - a.value);
-                                })()}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                                outerRadius={100}
-                                dataKey="value"
-                                fontSize={9}
-                              >
-                                {(() => {
-                                  const productRevenue: Record<string, number> = {};
-                                  productRevenueData.forEach(row => {
-                                    productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
-                                  });
-                                  return Object.keys(productRevenue).map((_, index) => (
-                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                                  ));
-                                })()}
-                              </Pie>
-                              <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
-                              <Legend wrapperStyle={{ fontSize: '9px' }} />
-                            </PieChart>
-                          </ResponsiveContainer>
+                          {/* User-wise Revenue Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">User-wise Revenue</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const userRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userRevenue[row.full_name] = (userRevenue[row.full_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.entries(userRevenue)
+                                        .map(([name, value]) => ({ name, value }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.split(' ')[0]} (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={10}
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(data) => {
+                                      if (productRevenueDetailUser === data.name) {
+                                        setProductRevenueDetailUser('');
+                                      } else {
+                                        setProductRevenueDetailUser(data.name);
+                                      }
+                                    }}
+                                  >
+                                    {(() => {
+                                      const userRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        userRevenue[row.full_name] = (userRevenue[row.full_name] || 0) + 1;
+                                      });
+                                      return Object.keys(userRevenue).map((_, index) => (
+                                        <Cell key={`cell-rev-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+
+                          {/* Revenue by Product Pie Chart */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="text-sm font-medium mb-4 text-center">Revenue by Product</h4>
+                            <div className="h-[280px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={(() => {
+                                      const productRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.entries(productRevenue)
+                                        .map(([name, value]) => ({ name, value }))
+                                        .sort((a, b) => b.value - a.value);
+                                    })()}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={({ name, percent }) => `${name.substring(0, 10)}... (${(percent * 100).toFixed(0)}%)`}
+                                    outerRadius={80}
+                                    dataKey="value"
+                                    fontSize={9}
+                                  >
+                                    {(() => {
+                                      const productRevenue: Record<string, number> = {};
+                                      productRevenueData.forEach(row => {
+                                        productRevenue[row.product_name] = (productRevenue[row.product_name] || 0) + Number(row.revenue);
+                                      });
+                                      return Object.keys(productRevenue).map((_, index) => (
+                                        <Cell key={`cell-prod-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                      ));
+                                    })()}
+                                  </Pie>
+                                  <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </>
+
+                      {/* Detail Panel */}
+                      {productRevenueDetailUser && (
+                        <div className="w-1/2 border rounded-lg p-4 animate-fade-in">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-sm font-semibold">
+                              Product Details: {productRevenueDetailUser}
+                            </h4>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => setProductRevenueDetailUser('')}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <ScrollArea className="h-[320px]">
+                            <table className="w-full text-sm">
+                              <thead className="bg-muted/50 sticky top-0">
+                                <tr className="border-b">
+                                  <th className="text-left p-2 font-medium">Date</th>
+                                  <th className="text-left p-2 font-medium">Product</th>
+                                  <th className="text-right p-2 font-medium">KG</th>
+                                  <th className="text-right p-2 font-medium">Revenue</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {productRevenueData
+                                  .filter(row => row.full_name === productRevenueDetailUser)
+                                  .map((row, index) => {
+                                    const qty = Number(row.quantity_sold);
+                                    const kgQty = row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty;
+                                    return (
+                                      <tr key={index} className="border-b hover:bg-muted/30">
+                                        <td className="p-2">{format(new Date(row.order_date), 'MMM dd')}</td>
+                                        <td className="p-2">{row.product_name}</td>
+                                        <td className="p-2 text-right">{kgQty.toFixed(2)}</td>
+                                        <td className="p-2 text-right font-medium">₹{Number(row.revenue).toLocaleString()}</td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                              <tfoot className="bg-muted/30">
+                                <tr>
+                                  <td className="p-2 font-semibold" colSpan={2}>Total</td>
+                                  <td className="p-2 text-right font-bold">
+                                    {productRevenueData
+                                      .filter(row => row.full_name === productRevenueDetailUser)
+                                      .reduce((sum, row) => {
+                                        const qty = Number(row.quantity_sold);
+                                        return sum + (row.unit?.toLowerCase() === 'grams' ? qty / 1000 : qty);
+                                      }, 0).toFixed(2)}
+                                  </td>
+                                  <td className="p-2 text-right font-bold text-primary">
+                                    ₹{productRevenueData
+                                      .filter(row => row.full_name === productRevenueDetailUser)
+                                      .reduce((sum, row) => sum + Number(row.revenue), 0).toLocaleString()}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </ScrollArea>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
                       No data found for the selected date range
