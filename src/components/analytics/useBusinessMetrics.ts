@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 
@@ -49,6 +48,8 @@ interface PendingPaymentDetail {
   order_date: string;
   order_id: string;
   pending_amount: number;
+  user_id?: string;
+  user_name?: string;
 }
 
 export const useBusinessMetrics = () => {
@@ -63,6 +64,10 @@ export const useBusinessMetrics = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
   
+  // Ref to prevent duplicate fetches
+  const lastFetchKeyRef = useRef<string>('');
+  const isFetchingRef = useRef(false);
+
   // Detail data states
   const [beatDetails, setBeatDetails] = useState<BeatDetail[]>([]);
   const [retailerDetails, setRetailerDetails] = useState<RetailerDetail[]>([]);
@@ -72,7 +77,23 @@ export const useBusinessMetrics = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   const fetchSummary = useCallback(async (userIds: string[], dateRange: { from: Date; to: Date }, userNames?: string[]) => {
+    // Create a fetch key to prevent duplicate requests
+    const fetchKey = `${userIds.slice().sort().join(',')}-${dateRange.from.getTime()}-${dateRange.to.getTime()}`;
+    
+    // Skip if already fetching with the same parameters
+    if (isFetchingRef.current && fetchKey === lastFetchKeyRef.current) {
+      return;
+    }
+    
+    // Skip if this exact fetch was already completed
+    if (fetchKey === lastFetchKeyRef.current && !isLoading) {
+      return;
+    }
+    
+    lastFetchKeyRef.current = fetchKey;
+    isFetchingRef.current = true;
     setIsLoading(true);
+    
     try {
       const fromDate = format(dateRange.from, 'yyyy-MM-dd');
       const toDate = format(dateRange.to, 'yyyy-MM-dd');
@@ -100,32 +121,37 @@ export const useBusinessMetrics = () => {
       if (ordersError) throw ordersError;
 
       // Fetch beats created by selected users within date range
-      let beatsQuery = supabase
-        .from('beats')
-        .select('id, created_by')
-        .gte('created_at', `${fromDate}T00:00:00`)
-        .lte('created_at', `${toDate}T23:59:59`);
+      // Fetch beats and retailers in parallel
+      const [beatsResult, retailersResult] = await Promise.all([
+        (async () => {
+          let beatsQuery = supabase
+            .from('beats')
+            .select('id, created_by')
+            .gte('created_at', `${fromDate}T00:00:00`)
+            .lte('created_at', `${toDate}T23:59:59`);
+          if (userIds.length > 0) {
+            beatsQuery = beatsQuery.in('created_by', userIds);
+          }
+          return beatsQuery;
+        })(),
+        (async () => {
+          let retailersQuery = supabase
+            .from('retailers')
+            .select('id, user_id')
+            .gte('created_at', `${fromDate}T00:00:00`)
+            .lte('created_at', `${toDate}T23:59:59`);
+          if (userIds.length > 0) {
+            retailersQuery = retailersQuery.in('user_id', userIds);
+          }
+          return retailersQuery;
+        })()
+      ]);
 
-      if (userIds.length > 0) {
-        beatsQuery = beatsQuery.in('created_by', userIds);
-      }
+      if (beatsResult.error) throw beatsResult.error;
+      if (retailersResult.error) throw retailersResult.error;
 
-      const { data: beats, error: beatsError } = await beatsQuery;
-      if (beatsError) throw beatsError;
-
-      // Fetch retailers created by selected users within date range
-      let retailersQuery = supabase
-        .from('retailers')
-        .select('id, user_id')
-        .gte('created_at', `${fromDate}T00:00:00`)
-        .lte('created_at', `${toDate}T23:59:59`);
-
-      if (userIds.length > 0) {
-        retailersQuery = retailersQuery.in('user_id', userIds);
-      }
-
-      const { data: retailers, error: retailersError } = await retailersQuery;
-      if (retailersError) throw retailersError;
+      const beats = beatsResult.data;
+      const retailers = retailersResult.data;
 
       const totalBeatsCount = beats?.length || 0;
       const totalRetailersCount = retailers?.length || 0;
@@ -152,13 +178,14 @@ export const useBusinessMetrics = () => {
           if (productData) {
             productData.forEach((row: any) => {
               const qty = Number(row.quantity_sold || 0);
-              const unit = (row.unit || '').toLowerCase();
-              // Same logic as SQL Report: grams converted to KG, others treated as KG directly
-              if (unit === 'grams') {
-                totalKg += qty / 1000;
-              } else {
+              const unit = (row.unit || '').toLowerCase().trim();
+              // Same logic as SQL Report: only convert weight-based units to KG
+              if (unit === 'kg' || unit.includes('kilo')) {
                 totalKg += qty;
+              } else if (unit === 'grams' || unit === 'gram' || unit === 'g') {
+                totalKg += qty / 1000;
               }
+              // Ignore pieces/pcs - not included in KG calculation
               // Sum revenue from RPC
               rpcTotalRevenue += Number(row.revenue || 0);
             });
@@ -198,6 +225,7 @@ export const useBusinessMetrics = () => {
       console.error('Error fetching business summary:', error);
     } finally {
       setIsLoading(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
@@ -207,36 +235,10 @@ export const useBusinessMetrics = () => {
       const fromDate = format(dateRange.from, 'yyyy-MM-dd');
       const toDate = format(dateRange.to, 'yyyy-MM-dd');
 
-      // Get beat plans
-      let beatsQuery = supabase
-        .from('beat_plans')
-        .select('id, beat_id, beat_name, user_id, plan_date')
-        .gte('plan_date', fromDate)
-        .lte('plan_date', toDate);
-
-      if (userIds.length > 0) {
-        beatsQuery = beatsQuery.in('user_id', userIds);
-      }
-
-      const { data: beatPlans } = await beatsQuery;
-
-      // Get visits
-      let visitsQuery = supabase
-        .from('visits')
-        .select('id, user_id, planned_date')
-        .gte('planned_date', fromDate)
-        .lte('planned_date', toDate);
-
-      if (userIds.length > 0) {
-        visitsQuery = visitsQuery.in('user_id', userIds);
-      }
-
-      const { data: visits } = await visitsQuery;
-
-      // Get orders
+      // Get orders with retailer beat_name - this is the primary source of beat performance data
       let ordersQuery = supabase
         .from('orders')
-        .select('id, total_amount, visit_id, user_id, order_date')
+        .select('id, total_amount, user_id, order_date, retailer_id, retailers!inner(id, name, beat_name)')
         .gte('order_date', fromDate)
         .lte('order_date', toDate);
 
@@ -246,11 +248,25 @@ export const useBusinessMetrics = () => {
 
       const { data: orders } = await ordersQuery;
 
-      // Group by beat using beat_plans
+      // Get visits for the date range to count visits per beat
+      let visitsQuery = supabase
+        .from('visits')
+        .select('id, user_id, planned_date, retailer_id, retailers!inner(id, name, beat_name)')
+        .gte('planned_date', fromDate)
+        .lte('planned_date', toDate);
+
+      if (userIds.length > 0) {
+        visitsQuery = visitsQuery.in('user_id', userIds);
+      }
+
+      const { data: visits } = await visitsQuery;
+
+      // Group by beat using retailer's beat_name from both visits and orders
       const beatMap = new Map<string, BeatDetail>();
-      
-      beatPlans?.forEach(plan => {
-        const beatName = plan.beat_name || 'Unknown';
+
+      // Process visits to count visits per beat
+      visits?.forEach(visit => {
+        const beatName = (visit.retailers as any)?.beat_name || 'Unknown';
         if (!beatMap.has(beatName)) {
           beatMap.set(beatName, {
             beat_name: beatName,
@@ -260,19 +276,23 @@ export const useBusinessMetrics = () => {
           });
         }
         const beat = beatMap.get(beatName)!;
-        
-        // Count visits for this beat plan date
-        const beatVisits = visits?.filter(v => 
-          v.planned_date === plan.plan_date && v.user_id === plan.user_id
-        ) || [];
-        beat.visits_count += beatVisits.length;
-        
-        // Find orders for these visits
-        beatVisits.forEach(visit => {
-          const visitOrders = orders?.filter(o => o.visit_id === visit.id) || [];
-          beat.orders_count += visitOrders.length;
-          beat.revenue += visitOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-        });
+        beat.visits_count += 1;
+      });
+
+      // Process orders to count orders and revenue per beat
+      orders?.forEach(order => {
+        const beatName = (order.retailers as any)?.beat_name || 'Unknown';
+        if (!beatMap.has(beatName)) {
+          beatMap.set(beatName, {
+            beat_name: beatName,
+            visits_count: 0,
+            orders_count: 0,
+            revenue: 0
+          });
+        }
+        const beat = beatMap.get(beatName)!;
+        beat.orders_count += 1;
+        beat.revenue += Number(order.total_amount || 0);
       });
 
       setBeatDetails(Array.from(beatMap.values()).sort((a, b) => b.revenue - a.revenue));
@@ -447,6 +467,7 @@ export const useBusinessMetrics = () => {
           id,
           order_date,
           credit_pending_amount,
+          user_id,
           retailers(name)
         `)
         .gte('order_date', fromDate)
@@ -460,12 +481,30 @@ export const useBusinessMetrics = () => {
 
       const { data } = await query;
 
+      // Fetch profile names separately since there's no FK from orders.user_id to profiles
+      const orderUserIds = [...new Set((data || []).map(o => o.user_id).filter(Boolean))];
+      let profilesMap: Record<string, string> = {};
+      
+      if (orderUserIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', orderUserIds);
+        
+        profilesMap = (profilesData || []).reduce((acc, p) => {
+          acc[p.id] = p.full_name || 'Unknown User';
+          return acc;
+        }, {} as Record<string, string>);
+      }
+
       setPendingPaymentDetails(
         (data || []).map(order => ({
           retailer_name: (order.retailers as any)?.name || 'Unknown',
           order_date: order.order_date,
           order_id: order.id,
-          pending_amount: Number(order.credit_pending_amount || 0)
+          pending_amount: Number(order.credit_pending_amount || 0),
+          user_id: order.user_id || '',
+          user_name: profilesMap[order.user_id || ''] || 'Unknown User'
         }))
       );
     } catch (error) {

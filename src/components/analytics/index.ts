@@ -15,3 +15,6 @@ export {
   PendingPaymentsDialog 
 } from './AnalyticsDetailDialogs';
 export { useBusinessMetrics } from './useBusinessMetrics';
+export { AnalyticsTargetDashboard } from './AnalyticsTargetDashboard';
+ export { RetailerSummarySection } from './RetailerSummarySection';
+export { RetailerMonthlyProductivitySection } from './RetailerMonthlyProductivitySection';
