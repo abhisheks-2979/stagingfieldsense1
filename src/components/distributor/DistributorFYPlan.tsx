@@ -507,7 +507,7 @@ export function DistributorFYPlan({ distributorId }: Props) {
           retailerId: r.id,
           retailerName: r.name,
           percentage: 100 / cat.retailers.length,
-          quantityTarget: existing?.quantity_target || 0,
+          quantityTarget: (existing as any)?.quantity_target || 0,
           revenueTarget: existing?.target_revenue || 0
         };
       })

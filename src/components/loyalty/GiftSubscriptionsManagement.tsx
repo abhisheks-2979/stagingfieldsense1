@@ -51,7 +51,7 @@ export function GiftSubscriptionsManagement() {
   const { data: subscriptions, isLoading } = useQuery({
     queryKey: ["retailer-gift-subscriptions", statusFilter],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from("retailer_gift_subscriptions")
         .select(`
           *,
@@ -79,7 +79,7 @@ export function GiftSubscriptionsManagement() {
         updateData.cancelled_at = new Date().toISOString();
       }
       
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .update(updateData)
         .eq("id", id);

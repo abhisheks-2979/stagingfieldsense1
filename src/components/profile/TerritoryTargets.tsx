@@ -125,13 +125,13 @@ export function TerritoryTargets({ selectedPlanId, userId, quantityUnit }: Terri
 
     try {
       // Load territory targets
-      const { data: territoryData } = await supabase
+      const { data: territoryData } = await (supabase as any)
         .from('user_business_plan_territories')
         .select('*')
         .eq('business_plan_id', selectedPlanId);
 
       // Load beat targets
-      const { data: beatData } = await supabase
+      const { data: beatData } = await (supabase as any)
         .from('user_business_plan_territory_beats')
         .select('*')
         .eq('business_plan_id', selectedPlanId);
@@ -153,7 +153,7 @@ export function TerritoryTargets({ selectedPlanId, userId, quantityUnit }: Terri
             return {
               beatId: b.id,
               beatName: b.beat_name,
-              percentage: existingBeat?.percentage || (terr.beats.length > 0 ? 100 / terr.beats.length : 0),
+              percentage: (existingBeat as any)?.percentage || (terr.beats.length > 0 ? 100 / terr.beats.length : 0),
               quantityTarget: existingBeat?.quantity_target || 0,
               revenueTarget: existingBeat?.revenue_target || 0
             };
@@ -381,13 +381,13 @@ export function TerritoryTargets({ selectedPlanId, userId, quantityUnit }: Terri
     
     try {
       // Delete existing territory targets
-      await supabase
+      await (supabase as any)
         .from('user_business_plan_territories')
         .delete()
         .eq('business_plan_id', selectedPlanId);
 
       // Delete existing beat targets
-      await supabase
+      await (supabase as any)
         .from('user_business_plan_territory_beats')
         .delete()
         .eq('business_plan_id', selectedPlanId);
@@ -404,7 +404,7 @@ export function TerritoryTargets({ selectedPlanId, userId, quantityUnit }: Terri
         }));
 
       if (territoriesToInsert.length > 0) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('user_business_plan_territories')
           .insert(territoriesToInsert);
         if (error) throw error;

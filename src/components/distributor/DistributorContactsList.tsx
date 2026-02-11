@@ -100,10 +100,10 @@ export function DistributorContactsList({ distributorId }: Props) {
         .order('is_primary', { ascending: false });
 
       if (error) throw error;
-      setContacts((data || []).map(c => ({
+      setContacts((data || []).map((c: any) => ({
         ...c,
         is_active: c.is_active ?? true,
-      })));
+      })) as any);
     } catch (error: any) {
       toast.error("Failed to load contacts: " + error.message);
     } finally {

@@ -33,9 +33,10 @@ export default function HeaderBrandingSettings() {
       }
 
       if (data) {
-        setCompanyId(data.id);
-        setCompanyName(data.header_name || "");
-        setLogoUrl(data.header_logo_url);
+        const d = data as any;
+        setCompanyId(d.id);
+        setCompanyName(d.header_name || "");
+        setLogoUrl(d.header_logo_url);
       }
     } catch (err) {
       console.error("Error:", err);
@@ -80,7 +81,7 @@ export default function HeaderBrandingSettings() {
       if (companyId) {
         await supabase
           .from("companies")
-          .update({ header_logo_url: publicUrl })
+          .update({ header_logo_url: publicUrl } as any)
           .eq("id", companyId);
         
         // Notify other components of the change

@@ -61,14 +61,14 @@ export function EmergencyContactsSection() {
   const fetchContacts = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("emergency_contacts")
       .select("*")
       .eq("user_id", user.id)
       .order("is_primary", { ascending: false });
 
     if (!error && data) {
-      setContacts(data);
+      setContacts(data as any);
     }
     setLoading(false);
   };
@@ -109,7 +109,7 @@ export function EmergencyContactsSection() {
 
     // If setting as primary, unset other primaries first
     if (formData.is_primary) {
-      await supabase
+      await (supabase as any)
         .from("emergency_contacts")
         .update({ is_primary: false })
         .eq("user_id", user.id);
@@ -126,14 +126,14 @@ export function EmergencyContactsSection() {
     };
 
     if (editingId) {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("emergency_contacts")
         .update(payload)
         .eq("id", editingId);
       if (error) toast.error("Failed to update");
       else toast.success("Contact updated");
     } else {
-      const { error } = await supabase.from("emergency_contacts").insert(payload);
+      const { error } = await (supabase as any).from("emergency_contacts").insert(payload);
       if (error) toast.error("Failed to add");
       else toast.success("Contact added");
     }
@@ -144,7 +144,7 @@ export function EmergencyContactsSection() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("emergency_contacts").delete().eq("id", id);
+    const { error } = await (supabase as any).from("emergency_contacts").delete().eq("id", id);
     if (error) toast.error("Failed to delete");
     else {
       toast.success("Contact deleted");

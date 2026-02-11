@@ -23,7 +23,7 @@ export function LoyaltyPointsBadge({
   const { data: totalPoints = 0 } = useQuery({
     queryKey: ["retailer-loyalty-points", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points")
         .eq("retailer_id", retailerId);

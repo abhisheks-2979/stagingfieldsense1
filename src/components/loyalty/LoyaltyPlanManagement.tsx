@@ -47,7 +47,7 @@ export function LoyaltyPlanManagement() {
   const { data: plans, isLoading } = useQuery({
     queryKey: ["retailer-loyalty-plans"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_plans")
         .select("*")
         .order("created_at", { ascending: false });
@@ -59,7 +59,7 @@ export function LoyaltyPlanManagement() {
   const createMutation = useMutation({
     mutationFn: async (plan: Partial<LoyaltyPlan>) => {
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase.from("retailer_loyalty_plans").insert([{
+      const { error } = await (supabase as any).from("retailer_loyalty_plans").insert([{
         plan_name: plan.plan_name,
         description: plan.description,
         start_date: plan.start_date,
@@ -81,7 +81,7 @@ export function LoyaltyPlanManagement() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<LoyaltyPlan> }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_plans")
         .update(updates)
         .eq("id", id);
@@ -98,7 +98,7 @@ export function LoyaltyPlanManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_plans")
         .delete()
         .eq("id", id);
@@ -114,7 +114,7 @@ export function LoyaltyPlanManagement() {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_plans")
         .update({ is_active })
         .eq("id", id);

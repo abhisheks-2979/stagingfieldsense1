@@ -12,11 +12,11 @@ export function RetailerPointsDashboard() {
   const { data: stats } = useQuery({
     queryKey: ["retailer-loyalty-stats"],
     queryFn: async () => {
-      const { data: points, error } = await supabase
+      const { data: points, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points");
       
-      const { data: retailers } = await supabase
+      const { data: retailers } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("retailer_id", { count: "exact" });
 
@@ -34,7 +34,7 @@ export function RetailerPointsDashboard() {
   const { data: retailerPoints, isLoading } = useQuery({
     queryKey: ["retailer-points-list", search],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from("retailer_loyalty_points")
         .select(`
           retailer_id,
@@ -58,7 +58,7 @@ export function RetailerPointsDashboard() {
       }, {});
 
       // Get total points for each retailer
-      const { data: pointsSums } = await supabase
+      const { data: pointsSums } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("retailer_id, points");
 

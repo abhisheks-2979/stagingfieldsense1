@@ -41,7 +41,7 @@ export function LoyaltyPointsDashboard() {
   const { data: plans } = useQuery({
     queryKey: ["retailer-loyalty-plans"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_plans")
         .select("*")
         .eq("is_active", true);
@@ -54,7 +54,7 @@ export function LoyaltyPointsDashboard() {
     queryKey: ["retailer-points-summary"],
     queryFn: async () => {
       // Get aggregated points per retailer
-      const { data: points, error: pointsError } = await supabase
+      const { data: points, error: pointsError } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("retailer_id, points");
       
@@ -97,7 +97,7 @@ export function LoyaltyPointsDashboard() {
     queryFn: async () => {
       if (!selectedRetailer?.retailer_id) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select(`
           id,
@@ -121,16 +121,16 @@ export function LoyaltyPointsDashboard() {
   const { data: stats } = useQuery({
     queryKey: ["loyalty-stats"],
     queryFn: async () => {
-      const { data: points } = await supabase
+      const { data: points } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points");
       
-      const { count: subscriptionCount } = await supabase
+      const { count: subscriptionCount } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .select("*", { count: "exact", head: true })
         .eq("status", "active");
 
-      const { count: redemptionCount } = await supabase
+      const { count: redemptionCount } = await (supabase as any)
         .from("retailer_gift_redemptions")
         .select("*", { count: "exact", head: true })
         .eq("status", "fulfilled");

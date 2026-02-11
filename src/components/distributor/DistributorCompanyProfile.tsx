@@ -67,16 +67,17 @@ export default function DistributorCompanyProfile({ distributorId, readOnly = fa
       if (data) {
         setDistributorName(data.name || "");
         setGstNumber(data.gst_number || "");
-        setLogoUrl(data.logo_url || "");
-        setQrCodeUrl(data.qr_code_url || "");
+        const d = data as any;
+        setLogoUrl(d.logo_url || "");
+        setQrCodeUrl(d.qr_code_url || "");
         form.reset({
-          state: data.state || "",
-          bank_name: data.bank_name || "",
-          bank_account: data.bank_account || "",
-          ifsc: data.ifsc || "",
-          account_holder_name: data.account_holder_name || "",
-          qr_upi: data.qr_upi || "",
-          terms_conditions: data.terms_conditions || "Thanks for doing business with us!",
+          state: d.state || "",
+          bank_name: d.bank_name || "",
+          bank_account: d.bank_account || "",
+          ifsc: d.ifsc || "",
+          account_holder_name: d.account_holder_name || "",
+          qr_upi: d.qr_upi || "",
+          terms_conditions: d.terms_conditions || "Thanks for doing business with us!",
         });
       }
     } catch (error: any) {
@@ -122,7 +123,7 @@ export default function DistributorCompanyProfile({ distributorId, readOnly = fa
 
       const { error: updateError } = await supabase
         .from('distributors')
-        .update({ logo_url: publicUrl })
+        .update({ logo_url: publicUrl } as any)
         .eq('id', distributorId);
 
       if (updateError) throw updateError;
@@ -171,7 +172,7 @@ export default function DistributorCompanyProfile({ distributorId, readOnly = fa
 
       const { error: updateError } = await supabase
         .from('distributors')
-        .update({ qr_code_url: publicUrl })
+        .update({ qr_code_url: publicUrl } as any)
         .eq('id', distributorId);
 
       if (updateError) throw updateError;
@@ -202,7 +203,7 @@ export default function DistributorCompanyProfile({ distributorId, readOnly = fa
           logo_url: logoUrl || null,
           qr_code_url: qrCodeUrl || null,
           updated_at: new Date().toISOString(),
-        })
+        } as any)
         .eq("id", distributorId);
 
       if (error) throw error;

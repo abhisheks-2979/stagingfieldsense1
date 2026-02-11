@@ -60,7 +60,7 @@ export function GiftRedemptionsManagement() {
   const { data: redemptions, isLoading } = useQuery({
     queryKey: ["retailer-gift-redemptions", statusFilter],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from("retailer_gift_redemptions")
         .select(`
           *,
@@ -105,7 +105,7 @@ export function GiftRedemptionsManagement() {
       if (code) updateData.voucher_code = code;
       if (reason) updateData.rejection_reason = reason;
       
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_redemptions")
         .update(updateData)
         .eq("id", id);
@@ -113,7 +113,7 @@ export function GiftRedemptionsManagement() {
 
       // If fulfilled and subscription exists, update subscription status
       if (status === "fulfilled" && selectedRedemption?.subscription_id) {
-        await supabase
+        await (supabase as any)
           .from("retailer_gift_subscriptions")
           .update({ status: "redeemed" })
           .eq("id", selectedRedemption.subscription_id);
