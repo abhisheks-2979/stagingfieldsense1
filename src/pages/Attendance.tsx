@@ -12,6 +12,7 @@ import { CheckCircle, XCircle, Camera, MapPin, Clock, Plus, Filter, Navigation2,
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubordinates } from '@/hooks/useSubordinates';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { supabase } from '@/integrations/supabase/client';
 import { format, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -49,6 +50,8 @@ const Attendance = () => {
   
   // Hierarchical user filter
   const { isManager, subordinateIds } = useSubordinates();
+  const { hasAdminAccess } = useAdminAccess();
+  const showTeamTab = isManager || hasAdminAccess;
   const [selectedTopTab, setSelectedTopTab] = useState<'my-attendance' | 'my-team'>('my-attendance');
   const [selectedUserId, setSelectedUserId] = useState<string>('self');
   
@@ -906,8 +909,8 @@ const Attendance = () => {
             <p className="text-muted-foreground text-sm">{t('attendance.subtitle')}</p>
           </div>
 
-          {/* Segmented Control - only show if manager */}
-          {isManager && (
+          {/* Segmented Control - show for managers and admins */}
+          {showTeamTab && (
             <div className="sticky top-0 z-10 bg-gradient-subtle pt-1 pb-2">
               <div className="flex bg-muted rounded-lg p-1">
                 <button
@@ -937,8 +940,8 @@ const Attendance = () => {
           )}
 
           {/* My Team Tab Content */}
-          {selectedTopTab === 'my-team' && isManager ? (
-            <TeamAttendanceTab subordinateIds={subordinateIds} />
+          {selectedTopTab === 'my-team' && showTeamTab ? (
+            <TeamAttendanceTab subordinateIds={subordinateIds} isAdmin={hasAdminAccess && subordinateIds.length === 0} />
           ) : (
           /* My Attendance Tab Content */
           <div className="space-y-6">

@@ -42,21 +42,38 @@ const today = format(new Date(), 'yyyy-MM-dd');
 const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
 const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
 
-export const useTeamAttendance = (subordinateIds: string[]) => {
+export const useTeamAttendance = (subordinateIds: string[], isAdmin = false) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const enabled = subordinateIds.length > 0;
+
+  // For admins with no subordinates, we fetch all profiles
+  const { data: allUserIds = [] } = useQuery({
+    queryKey: ['all-user-ids-for-team'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .neq('id', user?.id || '');
+      if (error) throw error;
+      return (data || []).map((p: any) => p.id);
+    },
+    enabled: isAdmin && subordinateIds.length === 0 && !!user?.id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const effectiveIds = subordinateIds.length > 0 ? subordinateIds : allUserIds;
+  const enabled = effectiveIds.length > 0;
 
   // 1. Subordinate profiles
   const { data: profiles = [] } = useQuery({
-    queryKey: ['team-profiles', subordinateIds],
+    queryKey: ['team-profiles', effectiveIds],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await (supabase as any)
         .from('profiles')
         .select('id, full_name, profile_picture_url, designation')
-        .in('id', subordinateIds);
+        .in('id', effectiveIds);
       if (error) throw error;
       return (data || []) as any as TeamMemberProfile[];
     },
@@ -66,13 +83,13 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
 
   // 2. Today's attendance
   const { data: todayAttendance = [] } = useQuery({
-    queryKey: ['team-today-attendance', subordinateIds, today],
+    queryKey: ['team-today-attendance', effectiveIds, today],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await supabase
         .from('attendance')
         .select('*')
-        .in('user_id', subordinateIds)
+        .in('user_id', effectiveIds)
         .eq('date', today);
       if (error) throw error;
       return data || [];
@@ -83,13 +100,13 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
 
   // 3. Today's approved leaves
   const { data: todayLeaves = [] } = useQuery({
-    queryKey: ['team-today-leaves', subordinateIds, today],
+    queryKey: ['team-today-leaves', effectiveIds, today],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await supabase
         .from('leave_applications')
         .select('user_id, start_date, end_date')
-        .in('user_id', subordinateIds)
+        .in('user_id', effectiveIds)
         .eq('status', 'approved')
         .lte('start_date', today)
         .gte('end_date', today);
@@ -102,13 +119,13 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
 
   // 4. Monthly attendance counts
   const { data: monthlyCountsRaw = [] } = useQuery({
-    queryKey: ['team-monthly-counts', subordinateIds, monthStart],
+    queryKey: ['team-monthly-counts', effectiveIds, monthStart],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await supabase
         .from('attendance')
         .select('user_id, date')
-        .in('user_id', subordinateIds)
+        .in('user_id', effectiveIds)
         .gte('date', monthStart)
         .lte('date', monthEnd)
         .in('status', ['present', 'regularized']);
@@ -121,18 +138,17 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
 
   // 5. Pending leave approvals
   const { data: pendingLeaves = [] } = useQuery({
-    queryKey: ['team-pending-leaves', subordinateIds],
+    queryKey: ['team-pending-leaves', effectiveIds],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await supabase
         .from('leave_applications')
         .select('id, user_id, start_date, end_date, reason, leave_type_id, status')
-        .in('user_id', subordinateIds)
+        .in('user_id', effectiveIds)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
       if (error) throw error;
       
-      // Get leave type names
       if (data && data.length > 0) {
         const typeIds = [...new Set(data.map(d => d.leave_type_id).filter(Boolean))];
         const { data: types } = await supabase
@@ -148,15 +164,14 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
     staleTime: 2 * 60 * 1000,
   });
 
-  // 6. Pending regularization approvals
   const { data: pendingRegularizations = [] } = useQuery({
-    queryKey: ['team-pending-regularizations', subordinateIds],
+    queryKey: ['team-pending-regularizations', effectiveIds],
     queryFn: async () => {
-      if (!subordinateIds.length) return [];
+      if (!effectiveIds.length) return [];
       const { data, error } = await supabase
         .from('regularization_requests')
         .select('id, user_id, attendance_date, reason, requested_check_in_time, requested_check_out_time, status')
-        .in('user_id', subordinateIds)
+        .in('user_id', effectiveIds)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -179,7 +194,7 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
   // Summary counts
   const presentCount = presentUserIds.size;
   const onLeaveCount = [...onLeaveUserIds].filter(id => !presentUserIds.has(id)).length;
-  const absentCount = subordinateIds.length - presentCount - onLeaveCount;
+  const absentCount = effectiveIds.length - presentCount - onLeaveCount;
 
   // Working days in month (approx)
   const totalWorkingDaysInMonth = 22;
@@ -188,7 +203,7 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
   const profileMap = new Map(profiles.map(p => [p.id, p]));
   const attendanceMap = new Map(todayAttendance.map((a: any) => [a.user_id, a]));
 
-  const teamMembers: TeamMemberAttendance[] = subordinateIds.map(id => {
+  const teamMembers: TeamMemberAttendance[] = effectiveIds.map(id => {
     const profile = profileMap.get(id) || { id, full_name: 'Unknown', profile_picture_url: null, designation: null };
     const att = attendanceMap.get(id);
     const isOnLeave = onLeaveUserIds.has(id) && !presentUserIds.has(id);
@@ -331,7 +346,7 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
     presentCount,
     onLeaveCount,
     absentCount,
-    totalSubordinates: subordinateIds.length,
+    totalSubordinates: effectiveIds.length,
     handleLeaveAction,
     handleRegularizationAction,
   };
