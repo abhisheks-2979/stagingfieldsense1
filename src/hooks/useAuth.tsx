@@ -270,15 +270,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setSecurityProfileName(secProfile);
           if (secProfile) localStorage.setItem('cached_security_profile', secProfile);
           
-          // Check if user must change password
-          const { data: profileData } = await (supabase as any)
-            .from('profiles')
-            .select('must_change_password')
-            .eq('id', session.user.id)
-            .maybeSingle();
-          
-          if ((profileData as any)?.must_change_password) {
-            setMustChangePassword(true);
+          // Check if user must change password (column may not exist)
+          try {
+            const { data: profileData } = await (supabase as any)
+              .from('profiles')
+              .select('must_change_password')
+              .eq('id', session.user.id)
+              .maybeSingle();
+            
+            if ((profileData as any)?.must_change_password) {
+              setMustChangePassword(true);
+            }
+          } catch {
+            // Column doesn't exist yet, skip
           }
         } catch (err) {
           devError('Error loading user data:', err);
@@ -370,18 +374,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const profile = await fetchUserProfile(data.user.id);
       setUserProfile(profile);
       
-      // Check if user must change password
-      const { data: profileData } = await (supabase as any)
-        .from('profiles')
-        .select('must_change_password')
-        .eq('id', data.user.id)
-        .maybeSingle();
-      
-      if ((profileData as any)?.must_change_password) {
-        setMustChangePassword(true);
-        toast.info('Please change your password to continue');
-        // Don't redirect here - let RoleBasedAuthPage handle it with query params preserved
-        return;
+      // Check if user must change password (column may not exist)
+      try {
+        const { data: profileData } = await (supabase as any)
+          .from('profiles')
+          .select('must_change_password')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        
+        if ((profileData as any)?.must_change_password) {
+          setMustChangePassword(true);
+          toast.info('Please change your password to continue');
+          return;
+        }
+      } catch {
+        // Column doesn't exist yet, skip
       }
       
       toast.success('Signed in successfully!');
