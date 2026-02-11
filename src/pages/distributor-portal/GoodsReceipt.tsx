@@ -178,7 +178,7 @@ const GoodsReceipt = () => {
         }
 
         // Log inward transaction
-        await supabase
+        await (supabase as any)
           .from('distributor_inventory_transactions')
           .insert({
             distributor_id: distributorId,

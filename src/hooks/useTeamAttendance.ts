@@ -53,12 +53,12 @@ export const useTeamAttendance = (subordinateIds: string[]) => {
     queryKey: ['team-profiles', subordinateIds],
     queryFn: async () => {
       if (!subordinateIds.length) return [];
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('profiles')
         .select('id, full_name, profile_picture_url, designation')
         .in('id', subordinateIds);
       if (error) throw error;
-      return (data || []) as TeamMemberProfile[];
+      return (data || []) as any as TeamMemberProfile[];
     },
     enabled,
     staleTime: 5 * 60 * 1000,

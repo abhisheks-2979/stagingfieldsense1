@@ -53,7 +53,7 @@ export function WorkExperienceSection() {
   const fetchExperiences = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("work_experiences")
       .select("*")
       .eq("user_id", user.id)
@@ -112,14 +112,14 @@ export function WorkExperienceSection() {
     };
 
     if (editingId) {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("work_experiences")
         .update(payload)
         .eq("id", editingId);
       if (error) toast.error("Failed to update");
       else toast.success("Experience updated");
     } else {
-      const { error } = await supabase.from("work_experiences").insert(payload);
+      const { error } = await (supabase as any).from("work_experiences").insert(payload);
       if (error) toast.error("Failed to add");
       else toast.success("Experience added");
     }
@@ -130,7 +130,7 @@ export function WorkExperienceSection() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("work_experiences").delete().eq("id", id);
+    const { error } = await (supabase as any).from("work_experiences").delete().eq("id", id);
     if (error) toast.error("Failed to delete");
     else {
       toast.success("Experience deleted");

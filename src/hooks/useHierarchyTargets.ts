@@ -81,7 +81,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
   const { data: hierarchyTargets = [], isLoading, error, refetch } = useQuery({
     queryKey: ['hierarchy-targets', fyYear],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from('hierarchy_targets')
         .select(`
           *,
@@ -103,7 +103,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
   // Create new hierarchy target
   const createMutation = useMutation({
     mutationFn: async (input: CreateHierarchyTargetInput) => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_targets')
         .insert({
           ...input,
@@ -129,7 +129,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
   // Update hierarchy target
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<HierarchyTarget> & { id: string }) => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_targets')
         .update(updates)
         .eq('id', id)
@@ -152,7 +152,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
   const publishMutation = useMutation({
     mutationFn: async (targetId: string) => {
       // Update status to published
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('hierarchy_targets')
         .update({ status: 'published' })
         .eq('id', targetId);
@@ -160,7 +160,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
       if (updateError) throw updateError;
 
       // Sync allocations to user_business_plans
-      const { data: allocations, error: allocError } = await supabase
+      const { data: allocations, error: allocError } = await (supabase as any)
         .from('hierarchy_target_allocations')
         .select('*')
         .eq('hierarchy_target_id', targetId)
@@ -169,7 +169,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
       if (allocError) throw allocError;
 
       // Get the hierarchy target for year and unit info
-      const { data: target, error: targetError } = await supabase
+      const { data: target, error: targetError } = await (supabase as any)
         .from('hierarchy_targets')
         .select('*')
         .eq('id', targetId)
@@ -180,56 +180,56 @@ export const useHierarchyTargets = (fyYear?: number) => {
       // Create/update user_business_plans for each allocation
       for (const alloc of allocations || []) {
         // Check if plan exists
-        const { data: existingPlan } = await supabase
+        const { data: existingPlan } = await (supabase as any)
           .from('user_business_plans')
           .select('id')
-          .eq('user_id', alloc.user_id)
-          .eq('year', target.fy_year)
+          .eq('user_id', (alloc as any).user_id)
+          .eq('year', (target as any).fy_year)
           .single();
 
         if (existingPlan) {
           // Update existing plan
-          await supabase
+          await (supabase as any)
             .from('user_business_plans')
             .update({
-              quantity_target: alloc.quantity_target,
-              revenue_target: alloc.revenue_target,
-              quantity_unit: target.quantity_unit,
+              quantity_target: (alloc as any).quantity_target,
+              revenue_target: (alloc as any).revenue_target,
+              quantity_unit: (target as any).quantity_unit,
               source: 'hierarchy',
-              hierarchy_allocation_id: alloc.id,
+              hierarchy_allocation_id: (alloc as any).id,
             })
             .eq('id', existingPlan.id);
         } else {
           // Create new plan
-          await supabase
+          await (supabase as any)
             .from('user_business_plans')
             .insert({
-              user_id: alloc.user_id,
-              year: target.fy_year,
-              quantity_target: alloc.quantity_target,
-              revenue_target: alloc.revenue_target,
-              quantity_unit: target.quantity_unit,
+              user_id: (alloc as any).user_id,
+              year: (target as any).fy_year,
+              quantity_target: (alloc as any).quantity_target,
+              revenue_target: (alloc as any).revenue_target,
+              quantity_unit: (target as any).quantity_unit,
               source: 'hierarchy',
-              hierarchy_allocation_id: alloc.id,
+              hierarchy_allocation_id: (alloc as any).id,
             });
         }
 
         // Mark allocation as synced
-        await supabase
+        await (supabase as any)
           .from('hierarchy_target_allocations')
           .update({
             is_synced_to_my_target: true,
             synced_at: new Date().toISOString(),
           })
-          .eq('id', alloc.id);
+          .eq('id', (alloc as any).id);
       }
 
       // Log the publish action
-      await supabase.from('hierarchy_target_history').insert({
+      await (supabase as any).from('hierarchy_target_history').insert({
         hierarchy_target_id: targetId,
         change_type: 'published',
         new_target: target,
-        affected_users: allocations?.map(a => a.user_id) || [],
+        affected_users: allocations?.map((a: any) => a.user_id) || [],
         reason: 'Targets published and synced to My Target',
         changed_by: user?.id,
       });
@@ -249,7 +249,7 @@ export const useHierarchyTargets = (fyYear?: number) => {
   // Delete hierarchy target
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('hierarchy_targets')
         .delete()
         .eq('id', id);
@@ -291,7 +291,7 @@ export const useHierarchyTargetAllocations = (hierarchyTargetId?: string) => {
     queryFn: async () => {
       if (!hierarchyTargetId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_target_allocations')
         .select(`
           *,
@@ -302,7 +302,7 @@ export const useHierarchyTargetAllocations = (hierarchyTargetId?: string) => {
         .order('level', { ascending: true });
 
       if (error) throw error;
-      return data as HierarchyTargetAllocation[];
+      return data as any as HierarchyTargetAllocation[];
     },
     enabled: !!hierarchyTargetId && !!user,
   });
@@ -312,7 +312,7 @@ export const useHierarchyTargetAllocations = (hierarchyTargetId?: string) => {
     mutationFn: async (allocations: Omit<HierarchyTargetAllocation, 'id' | 'created_at' | 'updated_at' | 'user'>[]) => {
       // Delete existing allocations for this target
       if (allocations.length > 0) {
-        await supabase
+        await (supabase as any)
           .from('hierarchy_target_allocations')
           .delete()
           .eq('hierarchy_target_id', allocations[0].hierarchy_target_id)
@@ -320,9 +320,9 @@ export const useHierarchyTargetAllocations = (hierarchyTargetId?: string) => {
       }
 
       // Insert new allocations
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_target_allocations')
-        .insert(allocations)
+        .insert(allocations as any)
         .select();
 
       if (error) throw error;
@@ -340,9 +340,9 @@ export const useHierarchyTargetAllocations = (hierarchyTargetId?: string) => {
   // Update single allocation
   const updateAllocationMutation = useMutation({
     mutationFn: async ({ id, ...updates }: UpdateAllocationInput) => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_target_allocations')
-        .update(updates)
+        .update(updates as any)
         .eq('id', id)
         .select()
         .single();
@@ -375,14 +375,14 @@ export const useHierarchyTargetHistory = (hierarchyTargetId?: string) => {
     queryFn: async () => {
       if (!hierarchyTargetId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_target_history')
         .select('*')
         .eq('hierarchy_target_id', hierarchyTargetId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as HierarchyTargetHistory[];
+      return data as any as HierarchyTargetHistory[];
     },
     enabled: !!hierarchyTargetId,
   });

@@ -45,7 +45,7 @@ export const useAISchemeSuggestions = () => {
   const { data: suggestions = [], isLoading, refetch } = useQuery({
     queryKey: ['ai-scheme-suggestions'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('ai_scheme_suggestions')
         .select('*')
         .eq('status', 'pending')
@@ -60,7 +60,7 @@ export const useAISchemeSuggestions = () => {
   const { data: allSuggestions = [] } = useQuery({
     queryKey: ['ai-scheme-suggestions-all'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('ai_scheme_suggestions')
         .select('*')
         .order('created_at', { ascending: false })
@@ -141,11 +141,11 @@ export const useAISchemeSuggestions = () => {
           include_children: true
         }));
 
-        await supabase.from('scheme_applicability').insert(applicabilityRules);
+        await supabase.from('scheme_applicability').insert(applicabilityRules as any);
       }
 
       // Update suggestion status
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from('ai_scheme_suggestions')
         .update({
           status: modifications ? 'modified' : 'approved',
@@ -174,7 +174,7 @@ export const useAISchemeSuggestions = () => {
   // Reject suggestion
   const rejectMutation = useMutation({
     mutationFn: async ({ suggestionId, reason }: { suggestionId: string; reason: string }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('ai_scheme_suggestions')
         .update({
           status: 'rejected',

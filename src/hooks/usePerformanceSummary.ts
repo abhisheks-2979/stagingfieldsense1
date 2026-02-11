@@ -139,7 +139,7 @@ export function usePerformanceSummary(
           .eq('business_plan_id', planData.id);
 
         // Fetch territory targets
-        const { data: territoryTargets } = await supabase
+        const { data: territoryTargets } = await (supabase as any)
           .from('user_business_plan_territories')
           .select('territory_id, territory_name, quantity_target, revenue_target')
           .eq('business_plan_id', planData.id);
@@ -281,7 +281,7 @@ export function usePerformanceSummary(
           }
         });
 
-        const territoryPerformance: PerformanceData[] = (territoryTargets || []).map(t => {
+        const territoryPerformance: PerformanceData[] = ((territoryTargets as any) || []).map((t: any) => {
           const target = {
             revenue: (t.revenue_target || 0) * periodMultiplier,
             quantity: (t.quantity_target || 0) * periodMultiplier,
@@ -390,7 +390,7 @@ export function usePerformanceSummary(
           }
         });
 
-        const retailerPerformance: PerformanceData[] = (retailerTargets || []).map(r => {
+        const retailerPerformance: PerformanceData[] = ((retailerTargets as any) || []).map((r: any) => {
           const target = {
             revenue: (r.target_revenue || 0) * periodMultiplier,
             quantity: (r.quantity_target || 0) * periodMultiplier,

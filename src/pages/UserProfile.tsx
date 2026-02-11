@@ -103,7 +103,7 @@ const UserProfile = () => {
       .single();
 
     // Also fetch profile social links
-    const { data: profileData } = await supabase
+    const { data: profileData } = await (supabase as any)
       .from('profiles')
       .select('designation, linkedin_url, twitter_url, instagram_url, facebook_url')
       .eq('id', user.id)
@@ -119,16 +119,16 @@ const UserProfile = () => {
       daily_da_allowance: employeeData?.daily_da_allowance?.toString() || '',
       manager_id: employeeData?.manager_id || '',
       hq: employeeData?.hq || '',
-      hq_territory_id: employeeData?.hq_territory_id || '',
+      hq_territory_id: (employeeData as any)?.hq_territory_id || '',
       date_of_joining: employeeData?.date_of_joining || '',
       date_of_exit: employeeData?.date_of_exit || '',
       address: employeeData?.address || '',
       band: employeeData?.band?.toString() || '',
-      designation: profileData?.designation || '',
-      linkedin_url: profileData?.linkedin_url || '',
-      twitter_url: profileData?.twitter_url || '',
-      instagram_url: profileData?.instagram_url || '',
-      facebook_url: profileData?.facebook_url || ''
+      designation: (profileData as any)?.designation || '',
+      linkedin_url: (profileData as any)?.linkedin_url || '',
+      twitter_url: (profileData as any)?.twitter_url || '',
+      instagram_url: (profileData as any)?.instagram_url || '',
+      facebook_url: (profileData as any)?.facebook_url || ''
     });
   };
 

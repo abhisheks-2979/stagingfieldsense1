@@ -223,7 +223,7 @@ const PrimaryOrders = () => {
           if (insertError) throw insertError;
         }
 
-        const { error: txnError } = await supabase
+        const { error: txnError } = await (supabase as any)
           .from('distributor_inventory_transactions')
           .insert({
             distributor_id: distributorId,
@@ -300,7 +300,7 @@ const PrimaryOrders = () => {
 
   const checkInventorySynced = async (orderId: string, distributorId: string) => {
     // Check if transaction logs exist
-    const { count: txCount, error: txError } = await supabase
+    const { count: txCount, error: txError } = await (supabase as any)
       .from('distributor_inventory_transactions')
       .select('id', { count: 'exact', head: true })
       .eq('reference_type', 'primary_order')

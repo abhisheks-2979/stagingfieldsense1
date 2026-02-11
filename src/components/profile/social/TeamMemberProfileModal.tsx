@@ -156,13 +156,13 @@ export function TeamMemberProfileModal({ userId, open, onClose }: TeamMemberProf
           .select("career_goal, motivation_driver, preferred_work_style, dream_role, five_year_vision")
           .eq("user_id", userId)
           .maybeSingle(),
-        supabase
+        (supabase as any)
           .from("education_history")
           .select("id, institution_name, degree, field_of_study, from_date, to_date")
           .eq("user_id", userId)
           .order("from_date", { ascending: false })
           .limit(3),
-        supabase
+        (supabase as any)
           .from("work_experiences")
           .select("id, company_name, designation, from_date, to_date, description")
           .eq("user_id", userId)
@@ -171,11 +171,11 @@ export function TeamMemberProfileModal({ userId, open, onClose }: TeamMemberProf
       ]);
 
       if (profileResult.data) {
-        setProfile(profileResult.data as MemberProfile);
+        setProfile(profileResult.data as any as MemberProfile);
       }
       
       if (employeeResult.data) {
-        setEmployeeData(employeeResult.data as EmployeeData);
+        setEmployeeData(employeeResult.data as any as EmployeeData);
         
         // Fetch manager info if manager_id exists
         if (employeeResult.data.manager_id) {
@@ -203,11 +203,11 @@ export function TeamMemberProfileModal({ userId, open, onClose }: TeamMemberProf
       }
       
       if (educationResult.data) {
-        setEducationHistory(educationResult.data);
+        setEducationHistory(educationResult.data as any);
       }
       
       if (workResult.data) {
-        setWorkHistory(workResult.data);
+        setWorkHistory(workResult.data as any);
       }
     } catch (error) {
       console.error("Error fetching member data:", error);
