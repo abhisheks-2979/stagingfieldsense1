@@ -62,7 +62,7 @@ export function GiftMasterManagement() {
   const { data: gifts, isLoading } = useQuery({
     queryKey: ["retailer-loyalty-gifts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .select("*")
         .order("sort_order", { ascending: true });
@@ -73,7 +73,7 @@ export function GiftMasterManagement() {
 
   const createMutation = useMutation({
     mutationFn: async (gift: Partial<LoyaltyGift>) => {
-      const { error } = await supabase.from("retailer_loyalty_gifts").insert([gift] as any);
+      const { error } = await (supabase as any).from("retailer_loyalty_gifts").insert([gift] as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -86,7 +86,7 @@ export function GiftMasterManagement() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<LoyaltyGift> }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .update(updates)
         .eq("id", id);
@@ -103,7 +103,7 @@ export function GiftMasterManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .delete()
         .eq("id", id);
@@ -119,7 +119,7 @@ export function GiftMasterManagement() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .update({ is_active })
         .eq("id", id);

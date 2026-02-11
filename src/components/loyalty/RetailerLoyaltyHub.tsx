@@ -33,7 +33,7 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const { data: pointsData } = useQuery({
     queryKey: ["retailer-total-points", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points, earned_at")
         .eq("retailer_id", retailerId);
@@ -57,7 +57,7 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const { data: pointsHistory } = useQuery({
     queryKey: ["retailer-points-history", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select(`
           id, points, earned_at, reference_type, reference_id,
@@ -77,7 +77,7 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const { data: gifts } = useQuery({
     queryKey: ["available-gifts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .select("*")
         .eq("is_active", true)
@@ -93,7 +93,7 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const { data: currentSubscription } = useQuery({
     queryKey: ["retailer-gift-subscription", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .select(`
           *,
@@ -113,7 +113,7 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const { data: parameters } = useQuery({
     queryKey: ["loyalty-parameters"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_parameters")
         .select("*")
         .eq("is_enabled", true)
@@ -133,17 +133,17 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
       
       // Cancel existing subscription if any
       if (currentSubscription) {
-        await supabase
+        await (supabase as any)
           .from("retailer_gift_subscriptions")
           .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-          .eq("id", currentSubscription.id);
+          .eq("id", (currentSubscription as any).id);
       }
       
-      const targetDate = gift.target_duration_months 
-        ? addMonths(new Date(), gift.target_duration_months)
+      const targetDate = (gift as any).target_duration_months 
+        ? addMonths(new Date(), (gift as any).target_duration_months)
         : addMonths(new Date(), 3);
       
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .insert({
           retailer_id: retailerId,
@@ -170,23 +170,23 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
     mutationFn: async () => {
       if (!currentSubscription) throw new Error("No active subscription");
       
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_redemptions")
         .insert({
           retailer_id: retailerId,
-          gift_id: currentSubscription.gift_id,
-          subscription_id: currentSubscription.id,
-          points_redeemed: currentSubscription.retailer_loyalty_gifts?.points_required || 0,
+          gift_id: (currentSubscription as any).gift_id,
+          subscription_id: (currentSubscription as any).id,
+          points_redeemed: (currentSubscription as any).retailer_loyalty_gifts?.points_required || 0,
           status: "pending",
         });
       
       if (error) throw error;
       
       // Update subscription status
-      await supabase
+      await (supabase as any)
         .from("retailer_gift_subscriptions")
         .update({ status: "redeemed", achieved_at: new Date().toISOString() })
-        .eq("id", currentSubscription.id);
+        .eq("id", (currentSubscription as any).id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["retailer-gift-subscription", retailerId] });
@@ -202,19 +202,19 @@ export function RetailerLoyaltyHub({ retailerId, isOpen, onClose }: RetailerLoya
   const previousScore = pointsData?.previousScore || 0;
 
   // Calculate subscription progress
-  const subscriptionGift = currentSubscription?.retailer_loyalty_gifts;
+  const subscriptionGift = (currentSubscription as any)?.retailer_loyalty_gifts;
   const pointsNeededForGift = subscriptionGift?.points_required || 0;
   const progressPercent = pointsNeededForGift > 0 
     ? Math.min((totalPoints / pointsNeededForGift) * 100, 100) 
     : 0;
   const pointsToGift = Math.max(pointsNeededForGift - totalPoints, 0);
   const canRedeem = totalPoints >= pointsNeededForGift && currentSubscription;
-  const daysToTarget = currentSubscription?.target_date 
-    ? differenceInDays(new Date(currentSubscription.target_date), new Date())
+  const daysToTarget = (currentSubscription as any)?.target_date 
+    ? differenceInDays(new Date((currentSubscription as any).target_date), new Date())
     : null;
 
   // Eligible gifts (can redeem immediately)
-  const eligibleGifts = gifts?.filter(g => g.points_required <= totalPoints) || [];
+  const eligibleGifts = (gifts as any)?.filter((g: any) => g.points_required <= totalPoints) || [];
 
   const getParameterIcon = (type: string) => {
     switch (type) {

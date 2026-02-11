@@ -59,7 +59,7 @@ export function RewardsManagement() {
   const { data: programs } = useQuery({
     queryKey: ["retailer-loyalty-programs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_programs")
         .select("*")
         .eq("is_active", true);
@@ -72,7 +72,7 @@ export function RewardsManagement() {
     queryKey: ["retailer-loyalty-rewards", selectedProgram],
     queryFn: async () => {
       if (!selectedProgram) return [];
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_rewards")
         .select("*")
         .eq("program_id", selectedProgram)
@@ -87,7 +87,7 @@ export function RewardsManagement() {
     queryKey: ["retailer-points-summary", selectedProgram],
     queryFn: async () => {
       if (!selectedProgram) return [];
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select(`
           retailer_id,
@@ -107,11 +107,11 @@ export function RewardsManagement() {
         return acc;
       }, {});
       
-      return Object.entries(aggregated || {}).map(([id, data]) => ({
+      return Object.entries(aggregated || {}).map(([id, data]: [string, any]) => ({
         retailer_id: id,
         retailer_name: data.name,
         total_points: data.total,
-      })).sort((a, b) => b.total_points - a.total_points);
+      })).sort((a: any, b: any) => b.total_points - a.total_points);
     },
     enabled: !!selectedProgram,
   });
@@ -132,7 +132,7 @@ export function RewardsManagement() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<Reward> }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_rewards")
         .update(updates)
         .eq("id", id);
@@ -149,7 +149,7 @@ export function RewardsManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_rewards")
         .delete()
         .eq("id", id);
@@ -165,7 +165,7 @@ export function RewardsManagement() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_rewards")
         .update({ is_active })
         .eq("id", id);

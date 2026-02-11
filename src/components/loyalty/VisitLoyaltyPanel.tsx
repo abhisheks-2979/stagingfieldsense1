@@ -21,7 +21,7 @@ export function VisitLoyaltyPanel({ retailerId, compact = false }: VisitLoyaltyP
   const { data: programData } = useQuery({
     queryKey: ["retailer-active-loyalty-program"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_programs")
         .select("*")
         .eq("is_active", true)
@@ -40,7 +40,7 @@ export function VisitLoyaltyPanel({ retailerId, compact = false }: VisitLoyaltyP
     queryFn: async () => {
       if (!programData?.id) return { total: 0 };
       
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points")
         .eq("retailer_id", retailerId)
@@ -59,7 +59,7 @@ export function VisitLoyaltyPanel({ retailerId, compact = false }: VisitLoyaltyP
     queryFn: async () => {
       if (!programData?.id) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_rewards")
         .select("*")
         .eq("program_id", programData.id)
@@ -78,7 +78,7 @@ export function VisitLoyaltyPanel({ retailerId, compact = false }: VisitLoyaltyP
     queryFn: async () => {
       if (!programData?.id) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_actions")
         .select("*")
         .eq("program_id", programData.id)

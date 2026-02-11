@@ -62,8 +62,8 @@ export function OnboardingChecklistSection() {
 
     if (progressResult.data) {
       const progressMap: Record<string, UserProgress> = {};
-      progressResult.data.forEach((p) => {
-        progressMap[p.task_id] = p;
+      progressResult.data.forEach((p: any) => {
+        progressMap[p.task_id] = p as UserProgress;
       });
       setProgress(progressMap);
     }
@@ -108,7 +108,7 @@ export function OnboardingChecklistSection() {
       if (!error && data) {
         setProgress((prev) => ({
           ...prev,
-          [taskId]: data,
+          [taskId]: data as any as UserProgress,
         }));
         toast.success("Task completed!");
       }

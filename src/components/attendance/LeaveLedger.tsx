@@ -68,7 +68,7 @@ const LeaveLedger = () => {
     try {
       const [usersRes, leaveTypesRes] = await Promise.all([
         supabase.from('profiles').select('id, full_name').order('full_name'),
-        supabase.from('leave_types').select('id, name, code' as any).eq('is_active', true).order('sort_order'),
+        (supabase as any).from('leave_types').select('id, name, code').eq('is_active', true).order('sort_order'),
       ]);
 
       setUsers(usersRes.data || []);

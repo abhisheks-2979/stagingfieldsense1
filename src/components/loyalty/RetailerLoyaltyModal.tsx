@@ -31,7 +31,7 @@ export function RetailerLoyaltyModal({
   const { data: totalPoints = 0 } = useQuery({
     queryKey: ["retailer-loyalty-points", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points")
         .eq("retailer_id", retailerId);
@@ -45,7 +45,7 @@ export function RetailerLoyaltyModal({
   const { data: transactions = [] } = useQuery({
     queryKey: ["retailer-loyalty-transactions", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("id, points, reference_type, description, earned_at")
         .eq("retailer_id", retailerId)
@@ -61,7 +61,7 @@ export function RetailerLoyaltyModal({
   const { data: currentSubscription } = useQuery({
     queryKey: ["retailer-gift-subscription", retailerId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .select(`
           *,
@@ -80,7 +80,7 @@ export function RetailerLoyaltyModal({
   const { data: availableGifts = [] } = useQuery({
     queryKey: ["available-loyalty-gifts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_gifts")
         .select("*")
         .eq("is_active", true)
@@ -96,14 +96,14 @@ export function RetailerLoyaltyModal({
     mutationFn: async (giftId: string) => {
       // Cancel current subscription if exists
       if (currentSubscription) {
-        await supabase
+        await (supabase as any)
           .from("retailer_gift_subscriptions")
           .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-          .eq("id", currentSubscription.id);
+          .eq("id", (currentSubscription as any).id);
       }
 
       // Create new subscription
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .insert({
           retailer_id: retailerId,
@@ -126,10 +126,10 @@ export function RetailerLoyaltyModal({
   const cancelMutation = useMutation({
     mutationFn: async () => {
       if (!currentSubscription) return;
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_subscriptions")
         .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-        .eq("id", currentSubscription.id);
+        .eq("id", (currentSubscription as any).id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -142,13 +142,13 @@ export function RetailerLoyaltyModal({
   const redeemMutation = useMutation({
     mutationFn: async () => {
       if (!currentSubscription) return;
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_gift_redemptions")
         .insert({
           retailer_id: retailerId,
-          gift_id: currentSubscription.gift_id,
-          subscription_id: currentSubscription.id,
-          points_redeemed: (currentSubscription.gift as any)?.points_required || 0,
+          gift_id: (currentSubscription as any).gift_id,
+          subscription_id: (currentSubscription as any).id,
+          points_redeemed: ((currentSubscription as any).gift as any)?.points_required || 0,
           status: "pending",
         });
       if (error) throw error;
@@ -160,7 +160,7 @@ export function RetailerLoyaltyModal({
   });
 
   const currentGift = currentSubscription?.gift as any;
-  const progressPoints = totalPoints - (currentSubscription?.points_at_subscription || 0);
+  const progressPoints = totalPoints - ((currentSubscription as any)?.points_at_subscription || 0);
   const targetPoints = currentGift?.points_required || 0;
   const progressPercent = targetPoints > 0 ? Math.min(100, (progressPoints / targetPoints) * 100) : 0;
   const canRedeem = totalPoints >= targetPoints && targetPoints > 0;

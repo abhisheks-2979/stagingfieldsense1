@@ -591,7 +591,7 @@ export function UserFYPlanTarget({
           retailerId: r.id,
           retailerName: r.name,
           percentage: 100 / cat.retailers.length,
-          quantityTarget: existing?.quantity_target || 0,
+          quantityTarget: (existing as any)?.quantity_target || 0,
           revenueTarget: existing?.target_revenue || 0
         };
       })
@@ -679,7 +679,7 @@ export function UserFYPlanTarget({
             productName: p.name,
             categoryId: p.category_id || 'uncategorized',
             categoryName: p.category_name || 'Uncategorized',
-            percentage: existingMonthProduct.percentage || 0,
+            percentage: (existingMonthProduct as any)?.percentage || 0,
             quantityTarget: existingMonthProduct.quantity_target || 0,
             revenueTarget: existingMonthProduct.revenue_target || 0
           };
@@ -791,7 +791,7 @@ export function UserFYPlanTarget({
     e.preventDefault();
     if (!effectiveUserId) return;
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('user_business_plans')
         .insert({
           user_id: effectiveUserId,

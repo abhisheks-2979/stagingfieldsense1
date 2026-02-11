@@ -521,7 +521,7 @@ export function InstagramSocialFeed() {
       const hasReacted = post.reactions[emoji]?.has_reacted;
       
       if (hasReacted) {
-        await supabase
+        await (supabase as any)
           .from("social_reactions")
           .delete()
           .eq("post_id", postId)

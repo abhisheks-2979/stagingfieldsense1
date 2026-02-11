@@ -128,14 +128,14 @@ export function TargetVsActualCard({ entityType, entityId, beatTextId, userId }:
         }
       } else {
         // Get targets for retailer from user_business_plan_retailers
-        const { data: targetsData } = await supabase
+        const { data: targetsData } = await (supabase as any)
           .from('user_business_plan_retailers')
           .select('quantity_target, target_revenue, user_business_plans!inner(year, quantity_unit)')
           .eq('retailer_id', entityId)
           .eq('user_business_plans.year', selectedFY);
 
-        totalRevenueTarget = targetsData?.reduce((sum, t) => sum + Number(t.target_revenue || 0), 0) || 0;
-        totalQuantityTarget = targetsData?.reduce((sum, t) => sum + Number(t.quantity_target || 0), 0) || 0;
+        totalRevenueTarget = (targetsData as any)?.reduce((sum: number, t: any) => sum + Number(t.target_revenue || 0), 0) || 0;
+        totalQuantityTarget = (targetsData as any)?.reduce((sum: number, t: any) => sum + Number(t.quantity_target || 0), 0) || 0;
         
         if (targetsData && targetsData.length > 0) {
           planQuantityUnit = (targetsData[0].user_business_plans as any)?.quantity_unit || 'units';

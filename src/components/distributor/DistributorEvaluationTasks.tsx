@@ -121,10 +121,10 @@ export function DistributorEvaluationTasks({ distributorId }: Props) {
       if (!data || data.length === 0) {
         await initializeTasks();
       } else {
-        setTasks(data.map(t => ({
+        setTasks(data.map((t: any) => ({
           ...t,
           attachment_urls: t.attachment_urls || []
-        })));
+        })) as any);
       }
     } catch (error: any) {
       toast.error("Failed to load tasks: " + error.message);
@@ -152,10 +152,10 @@ export function DistributorEvaluationTasks({ distributorId }: Props) {
         .select();
 
       if (error) throw error;
-      setTasks((data || []).map(t => ({
+      setTasks((data || []).map((t: any) => ({
         ...t,
         attachment_urls: t.attachment_urls || []
-      })));
+      })) as any);
     } catch (error: any) {
       toast.error("Failed to initialize tasks: " + error.message);
     }

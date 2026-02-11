@@ -52,14 +52,14 @@ export function EducationHistorySection() {
   const fetchEducations = async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("education_history")
       .select("*")
       .eq("user_id", user.id)
       .order("from_date", { ascending: false });
 
     if (!error && data) {
-      setEducations(data);
+      setEducations(data as any);
     }
     setLoading(false);
   };
@@ -111,14 +111,14 @@ export function EducationHistorySection() {
     };
 
     if (editingId) {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("education_history")
         .update(payload)
         .eq("id", editingId);
       if (error) toast.error("Failed to update");
       else toast.success("Education updated");
     } else {
-      const { error } = await supabase.from("education_history").insert(payload);
+      const { error } = await (supabase as any).from("education_history").insert(payload);
       if (error) toast.error("Failed to add");
       else toast.success("Education added");
     }
@@ -129,7 +129,7 @@ export function EducationHistorySection() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("education_history").delete().eq("id", id);
+    const { error } = await (supabase as any).from("education_history").delete().eq("id", id);
     if (error) toast.error("Failed to delete");
     else {
       toast.success("Education deleted");

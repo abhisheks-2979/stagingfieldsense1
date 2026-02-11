@@ -81,7 +81,7 @@ const LeaveTypesManager = () => {
         .order('sort_order', { ascending: true });
 
       if (error) throw error;
-      setLeaveTypes(data || []);
+      setLeaveTypes((data as any) || []);
     } catch (error) {
       console.error('Error fetching leave types:', error);
       toast.error('Failed to load leave types');
@@ -145,7 +145,7 @@ const LeaveTypesManager = () => {
       if (editingType) {
         const { error } = await supabase
           .from('leave_types')
-          .update(leaveTypeData)
+          .update(leaveTypeData as any)
           .eq('id', editingType.id);
 
         if (error) throw error;
@@ -153,7 +153,7 @@ const LeaveTypesManager = () => {
       } else {
         const { error } = await supabase
           .from('leave_types')
-          .insert(leaveTypeData);
+          .insert(leaveTypeData as any);
 
         if (error) {
           if (error.code === '23505') {
@@ -205,7 +205,7 @@ const LeaveTypesManager = () => {
     try {
       const { error } = await supabase
         .from('leave_types')
-        .update({ is_active: false })
+        .update({ is_active: false } as any)
         .eq('id', id);
 
       if (error) throw error;
@@ -223,7 +223,7 @@ const LeaveTypesManager = () => {
     try {
       const { error } = await supabase
         .from('leave_types')
-        .update({ is_active: !leaveType.is_active })
+        .update({ is_active: !leaveType.is_active } as any)
         .eq('id', leaveType.id);
 
       if (error) throw error;

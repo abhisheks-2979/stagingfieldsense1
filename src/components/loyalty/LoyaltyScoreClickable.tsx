@@ -47,7 +47,7 @@ export function LoyaltyScoreClickable({
   const { data: pointsHistory } = useQuery({
     queryKey: ["retailer-loyalty-history", retailerId, programData.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select(`
           id,

@@ -34,7 +34,7 @@ export function ProgramsManagement() {
   const { data: programs, isLoading } = useQuery({
     queryKey: ["retailer-loyalty-programs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_programs")
         .select("*")
         .order("created_at", { ascending: false });
@@ -46,7 +46,7 @@ export function ProgramsManagement() {
   const createMutation = useMutation({
     mutationFn: async (program: any) => {
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase.from("retailer_loyalty_programs").insert({
+      const { error } = await (supabase as any).from("retailer_loyalty_programs").insert({
         ...program,
         created_by: userData?.user?.id,
       });
@@ -62,7 +62,7 @@ export function ProgramsManagement() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_programs")
         .update(updates)
         .eq("id", id);
@@ -79,7 +79,7 @@ export function ProgramsManagement() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_programs")
         .delete()
         .eq("id", id);

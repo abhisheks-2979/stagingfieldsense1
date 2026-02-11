@@ -120,7 +120,7 @@ export function LoyaltyParameterConfig() {
   const { data: parameters, isLoading } = useQuery({
     queryKey: ["retailer-loyalty-parameters"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_parameters")
         .select("*")
         .order("created_at", { ascending: false });
@@ -131,7 +131,7 @@ export function LoyaltyParameterConfig() {
 
   const createMutation = useMutation({
     mutationFn: async (param: Partial<LoyaltyParameter>) => {
-      const { error } = await supabase.from("retailer_loyalty_parameters").insert([param] as any);
+      const { error } = await (supabase as any).from("retailer_loyalty_parameters").insert([param] as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -145,7 +145,7 @@ export function LoyaltyParameterConfig() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<LoyaltyParameter> }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_parameters")
         .update(updates)
         .eq("id", id);
@@ -162,7 +162,7 @@ export function LoyaltyParameterConfig() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_parameters")
         .delete()
         .eq("id", id);
@@ -178,7 +178,7 @@ export function LoyaltyParameterConfig() {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_parameters")
         .update({ is_enabled: enabled })
         .eq("id", id);

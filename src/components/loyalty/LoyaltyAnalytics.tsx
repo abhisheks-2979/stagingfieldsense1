@@ -8,12 +8,12 @@ export function LoyaltyAnalytics() {
     queryKey: ["retailer-loyalty-analytics"],
     queryFn: async () => {
       // Get all points
-      const { data: allPoints } = await supabase
+      const { data: allPoints } = await (supabase as any)
         .from("retailer_loyalty_points")
         .select("points, action_id, retailer_id, retailer_loyalty_actions(action_name, action_type)");
 
       // Get redemptions
-      const { data: redemptions } = await supabase
+      const { data: redemptions } = await (supabase as any)
         .from("retailer_loyalty_redemptions")
         .select("status, voucher_amount, points_redeemed");
 

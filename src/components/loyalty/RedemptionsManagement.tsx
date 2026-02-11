@@ -21,7 +21,7 @@ export function RedemptionsManagement() {
   const { data: redemptions, isLoading } = useQuery({
     queryKey: ["retailer-loyalty-redemptions"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("retailer_loyalty_redemptions")
         .select(`
           *,
@@ -37,7 +37,7 @@ export function RedemptionsManagement() {
   const approveMutation = useMutation({
     mutationFn: async ({ id, voucher_code }: { id: string; voucher_code: string }) => {
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_redemptions")
         .update({
           status: "approved",
@@ -60,7 +60,7 @@ export function RedemptionsManagement() {
   const rejectMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("retailer_loyalty_redemptions")
         .update({
           status: "rejected",
