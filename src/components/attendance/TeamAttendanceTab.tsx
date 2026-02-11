@@ -7,9 +7,10 @@ import { TeamMemberDetailSheet } from './TeamMemberDetailSheet';
 
 interface TeamAttendanceTabProps {
   subordinateIds: string[];
+  isAdmin?: boolean;
 }
 
-export const TeamAttendanceTab = ({ subordinateIds }: TeamAttendanceTabProps) => {
+export const TeamAttendanceTab = ({ subordinateIds, isAdmin = false }: TeamAttendanceTabProps) => {
   const [filter, setFilter] = useState<TeamFilter>('all');
   const [detailUserId, setDetailUserId] = useState<string | null>(null);
 
@@ -21,7 +22,7 @@ export const TeamAttendanceTab = ({ subordinateIds }: TeamAttendanceTabProps) =>
     absentCount,
     handleLeaveAction,
     handleRegularizationAction,
-  } = useTeamAttendance(subordinateIds);
+  } = useTeamAttendance(subordinateIds, isAdmin);
 
   const filteredMembers = filter === 'all'
     ? teamMembers
