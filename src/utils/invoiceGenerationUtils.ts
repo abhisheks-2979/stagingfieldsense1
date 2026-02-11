@@ -57,7 +57,7 @@ export async function markInvoiceGenerated(
   orderId: string
 ): Promise<InvoiceGenerationResult> {
   try {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('orders')
       .update({
         invoice_generated_at: new Date().toISOString()
@@ -123,7 +123,7 @@ export async function getOrderPaymentSummary(orderId: string): Promise<{
   isPaid: boolean;
 } | null> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('orders')
       .select('total_amount, amount_collected, payment_status')
       .eq('id', orderId)

@@ -534,7 +534,7 @@ const SecondarySales = () => {
       }
 
       // Step 5: Create transaction/ledger entry for audit trail
-      const { error: txError } = await supabase
+      const { error: txError } = await (supabase as any)
         .from('distributor_inventory_transactions')
         .insert({
           distributor_id: distributorId,
