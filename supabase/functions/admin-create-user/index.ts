@@ -146,26 +146,22 @@ serve(async (req) => {
     if (hint_question?.trim()) userMetadata.hint_question = hint_question.trim();
     if (hint_answer?.trim()) userMetadata.hint_answer = hint_answer.trim();
 
-    // Check if user already exists via GoTrue REST API (profiles table has no email column)
+    // Check if user already exists via direct SQL query (GoTrue APIs have database errors)
     let existingUser: { id: string; email?: string } | null = null;
-    try {
-      const gotrueUrl = `${supabaseUrl}/auth/v1/admin/users?per_page=1000`;
-      const listRes = await fetch(gotrueUrl, {
-        headers: {
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-          'apikey': supabaseServiceKey,
-        },
-      });
-      if (listRes.ok) {
-        const listData = await listRes.json();
-        const users = listData.users || listData;
-        if (Array.isArray(users)) {
-          const found = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
-          if (found) existingUser = { id: found.id, email: found.email };
-        }
+    const { data: existingAuthUser } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('username', email.toLowerCase())
+      .maybeSingle();
+    
+    // Also check auth.users directly via RPC
+    if (!existingAuthUser) {
+      const { data: authCheck } = await supabaseAdmin.rpc('admin_check_email_exists', { p_email: email });
+      if (authCheck) {
+        existingUser = { id: authCheck, email };
       }
-    } catch (e) {
-      console.error('Error checking existing user:', e);
+    } else {
+      existingUser = { id: existingAuthUser.id, email };
     }
     
     let authUserId: string;
@@ -300,7 +296,8 @@ serve(async (req) => {
       console.error('Employee creation error:', employeeError);
       // Clean up auth user if employee creation fails (only for new users)
       if (!existingUser) {
-        await supabaseAdmin.auth.admin.deleteUser(authUserId);
+        // Delete via direct SQL since GoTrue admin APIs have issues
+        await supabaseAdmin.rpc('admin_delete_auth_user', { p_user_id: authUserId });
       }
       return new Response(
         JSON.stringify({ 
