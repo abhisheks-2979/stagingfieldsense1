@@ -223,17 +223,7 @@ serve(async (req) => {
           console.error('Employee update error:', empUpdateError);
         }
         
-        // Update must_change_password flag if using temporary password
-        if (is_temporary_password) {
-          const { error: profileUpdateError } = await supabaseAdmin
-            .from('profiles')
-            .update({ must_change_password: true })
-            .eq('id', existingUser.id);
-          
-          if (profileUpdateError) {
-            console.error('Profile update error:', profileUpdateError);
-          }
-        }
+         // Note: must_change_password column doesn't exist on profiles, skipping
 
         // Update security profile if provided
         if (security_profile_id) {
@@ -264,45 +254,58 @@ serve(async (req) => {
         );
       }
     } else {
-      // Create new auth user via GoTrue REST API directly (bypasses SDK database error)
-      const gotrueUrl = `${supabaseUrl}/auth/v1/admin/users`;
-      const createResponse = await fetch(gotrueUrl, {
+      // Create new auth user via signUp endpoint (admin createUser has database errors)
+      const signUpResponse = await fetch(`${supabaseUrl}/auth/v1/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-          'apikey': supabaseServiceKey,
+          'apikey': supabaseAnonKey,
         },
         body: JSON.stringify({
           email,
           password,
-          user_metadata: userMetadata,
-          email_confirm: true,
+          data: userMetadata,
         }),
       });
 
-      const createResult = await createResponse.json();
+      const signUpResult = await signUpResponse.json();
 
-      if (!createResponse.ok) {
-        console.error('Auth creation error:', createResult);
+      if (!signUpResponse.ok) {
+        console.error('Auth signup error:', signUpResult);
         return new Response(
           JSON.stringify({ 
             error: 'Failed to create user account', 
-            details: createResult.msg || createResult.message || JSON.stringify(createResult)
+            details: signUpResult.msg || signUpResult.message || JSON.stringify(signUpResult)
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      if (!createResult.id) {
-        console.error('User creation returned no user id');
+      const newUserId = signUpResult.id || signUpResult.user?.id;
+      if (!newUserId) {
+        console.error('User creation returned no user id:', signUpResult);
         return new Response(
           JSON.stringify({ error: 'User creation failed - no user returned' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       
-      authUserId = createResult.id;
+      authUserId = newUserId;
+
+      // Confirm the email using admin API via REST
+      try {
+        await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUserId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+            'apikey': supabaseServiceKey,
+          },
+          body: JSON.stringify({ email_confirm: true }),
+        });
+      } catch (confirmErr) {
+        console.error('Email confirm error (non-blocking):', confirmErr);
+      }
     }
 
     console.log('Auth user created/updated:', authUserId);
@@ -343,17 +346,7 @@ serve(async (req) => {
 
     console.log('Employee record created successfully');
 
-    // Set must_change_password flag if using temporary password
-    if (is_temporary_password) {
-      const { error: profileUpdateError } = await supabaseAdmin
-        .from('profiles')
-        .update({ must_change_password: true })
-        .eq('id', authUserId);
-      
-      if (profileUpdateError) {
-        console.error('Profile update error for must_change_password:', profileUpdateError);
-      }
-    }
+    // Note: must_change_password column doesn't exist on profiles, skipping
 
     // Assign default 'user' role (ignore conflict if exists)
     const { error: roleInsertError } = await supabaseAdmin
