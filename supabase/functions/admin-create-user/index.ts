@@ -146,9 +146,15 @@ serve(async (req) => {
     if (hint_question?.trim()) userMetadata.hint_question = hint_question.trim();
     if (hint_answer?.trim()) userMetadata.hint_answer = hint_answer.trim();
 
-    // Check if user already exists
-    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const existingUser = existingUsers?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    // Check if user already exists by looking up profiles table (avoids auth.admin.listUsers database errors)
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+    
+    // Also try to find in auth by creating - if user exists, createUser will fail with a specific error
+    let existingUser: { id: string; email?: string } | null = existingProfile ? { id: existingProfile.id, email: existingProfile.email } : null;
     
     let authUserId: string;
     
