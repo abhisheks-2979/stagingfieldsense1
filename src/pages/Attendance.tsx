@@ -1270,8 +1270,9 @@ const Attendance = () => {
 
           {/* Tabs for different sections */}
           <Tabs defaultValue="attendance" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className={`grid w-full ${isManager ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <TabsTrigger value="attendance">{t('attendance.myAttendance')}</TabsTrigger>
+              {isManager && <TabsTrigger value="team">My Team</TabsTrigger>}
               <TabsTrigger value="leave">{t('attendance.leave')}</TabsTrigger>
               <TabsTrigger value="holiday">{t('attendance.holiday')}</TabsTrigger>
             </TabsList>
@@ -1490,6 +1491,12 @@ const Attendance = () => {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {isManager && (
+              <TabsContent value="team">
+                <TeamAttendanceTab subordinateIds={subordinateIds} />
+              </TabsContent>
+            )}
 
             <TabsContent value="leave">
               <div className="space-y-4">
