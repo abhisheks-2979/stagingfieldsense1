@@ -82,9 +82,9 @@ serve(async (req) => {
   }
 
   try {
-    // Verify authentication
+    // Verify authentication manually (verify_jwt = false)
     const authHeader = req.headers.get('authorization')
-    if (!authHeader) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return new Response(
         JSON.stringify({ error: 'Missing authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -97,15 +97,17 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     )
 
-    // Get authenticated user
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) {
-      console.error('Auth error:', userError)
+    const token = authHeader.replace('Bearer ', '')
+    const { data: claimsData, error: claimsError } = await supabaseClient.auth.getClaims(token)
+    if (claimsError || !claimsData?.claims) {
+      console.error('Auth error:', claimsError)
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    const user = { id: claimsData.claims.sub as string }
 
     const { baselinePhotoUrl, attendancePhotoUrl }: FaceMatchRequest = await req.json()
 
