@@ -13807,9 +13807,14 @@ export type Database = {
     }
     Functions: {
       _get_tenant_from_user: { Args: { _user_id: string }; Returns: string }
+      admin_check_email_exists: { Args: { p_email: string }; Returns: string }
       admin_create_auth_user: {
         Args: { p_email: string; p_password: string; p_user_metadata?: Json }
         Returns: string
+      }
+      admin_delete_auth_user: {
+        Args: { p_user_id: string }
+        Returns: undefined
       }
       calculate_beat_adherence: {
         Args: { p_end: string; p_start: string; p_user_id: string }
