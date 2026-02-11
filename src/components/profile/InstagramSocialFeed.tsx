@@ -606,7 +606,7 @@ export function InstagramSocialFeed() {
   };
 
   const getStorageUrl = (path: string) => {
-    return `https://etabpbfokzhhfuybeieu.supabase.co/storage/v1/object/public/social-posts/${path}`;
+    return `https://aoxdosjkwqyuvccuwhzc.supabase.co/storage/v1/object/public/social-posts/${path}`;
   };
 
   const openImageLightbox = (post: Post, startIndex: number = 0) => {
