@@ -127,7 +127,7 @@ export async function awardPointsForOrder(context: OrderContext) {
           }
           
           // Fetch monthly target breakdown
-          const { data: monthlyData } = await supabase
+          const { data: monthlyData } = await (supabase as any)
             .from("user_business_plan_months")
             .select("quantity_target, revenue_target, working_days")
             .eq("business_plan_id", userPlanData.id)

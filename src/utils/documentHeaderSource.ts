@@ -38,7 +38,7 @@ export async function getDocumentSettings(): Promise<{
   distributorEnabled: boolean;
 }> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('invoice_document_settings')
       .select('setting_key, setting_value');
 
@@ -63,7 +63,7 @@ export async function getDocumentSettings(): Promise<{
     };
     let distributorEnabled = false;
 
-    for (const row of data || []) {
+    for (const row of (data as any[]) || []) {
       if (row.setting_key === 'document_header_source') {
         headerSource = row.setting_value as unknown as DocumentSettings;
       } else if (row.setting_key === 'distributor_details_enabled') {
@@ -171,7 +171,7 @@ async function getDistributorHeaderData(retailerId: string): Promise<DocumentHea
     }
 
     // Fetch from distributors table (not retailers table)
-    const { data: distributor, error: distributorError } = await supabase
+    const { data: distributor, error: distributorError } = await (supabase as any)
       .from('distributors')
       .select('*')
       .eq('id', retailer.distributor_id)
@@ -235,7 +235,7 @@ export async function updateDocumentSettings(
 ): Promise<boolean> {
   try {
     // Update header source - use update since record already exists
-    const { error: error1 } = await supabase
+    const { error: error1 } = await (supabase as any)
       .from('invoice_document_settings')
       .update({
         setting_value: JSON.parse(JSON.stringify(headerSource)),
@@ -248,7 +248,7 @@ export async function updateDocumentSettings(
     }
 
     // Update distributor enabled
-    const { error: error2 } = await supabase
+    const { error: error2 } = await (supabase as any)
       .from('invoice_document_settings')
       .update({
         setting_value: JSON.parse(JSON.stringify({ enabled: distributorEnabled })),

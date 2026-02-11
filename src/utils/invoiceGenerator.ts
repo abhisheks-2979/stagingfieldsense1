@@ -1079,7 +1079,7 @@ export async function fetchAndGenerateInvoice(orderId: string): Promise<{ blob: 
       if (item.product_id && navigator.onLine) {
         try {
           // First try to get from product
-          const { data: productData } = await supabase
+          const { data: productData } = await (supabase as any)
             .from("products")
             .select("hsn_code, rate, unit")
             .eq("id", item.product_id)
@@ -1108,7 +1108,7 @@ export async function fetchAndGenerateInvoice(orderId: string): Promise<{ blob: 
           
           // Also check if it's a variant (product_id might be variant_id in some cases)
           if (!enrichedItem.hsn_code) {
-            const { data: variantData } = await supabase
+            const { data: variantData } = await (supabase as any)
               .from("product_variants")
               .select("hsn_code, price")
               .eq("id", item.product_id)
