@@ -146,15 +146,27 @@ serve(async (req) => {
     if (hint_question?.trim()) userMetadata.hint_question = hint_question.trim();
     if (hint_answer?.trim()) userMetadata.hint_answer = hint_answer.trim();
 
-    // Check if user already exists by looking up profiles table (avoids auth.admin.listUsers database errors)
-    const { data: existingProfile } = await supabaseAdmin
-      .from('profiles')
-      .select('id, email')
-      .eq('email', email.toLowerCase())
-      .maybeSingle();
-    
-    // Also try to find in auth by creating - if user exists, createUser will fail with a specific error
-    let existingUser: { id: string; email?: string } | null = existingProfile ? { id: existingProfile.id, email: existingProfile.email } : null;
+    // Check if user already exists via GoTrue REST API (profiles table has no email column)
+    let existingUser: { id: string; email?: string } | null = null;
+    try {
+      const gotrueUrl = `${supabaseUrl}/auth/v1/admin/users?per_page=1000`;
+      const listRes = await fetch(gotrueUrl, {
+        headers: {
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'apikey': supabaseServiceKey,
+        },
+      });
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const users = listData.users || listData;
+        if (Array.isArray(users)) {
+          const found = users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+          if (found) existingUser = { id: found.id, email: found.email };
+        }
+      }
+    } catch (e) {
+      console.error('Error checking existing user:', e);
+    }
     
     let authUserId: string;
     
