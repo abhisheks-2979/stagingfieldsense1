@@ -130,7 +130,7 @@ export const RevenueBySKUSection = ({ selectedUsers, dateRange, filteredUserName
         setSkuData(sortedData);
       } else {
         // Use the RPC for single user
-        const { data, error } = await supabase.rpc('get_product_revenue_performance', {
+        const { data, error } = await supabase.rpc('get_product_revenue_performance' as any, {
           user_full_name: selectedUsers[0],
           start_date: fromDate,
           end_date: toDate

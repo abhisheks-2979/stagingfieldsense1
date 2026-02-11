@@ -272,9 +272,9 @@ export function AllocationTable({
 
   useEffect(() => {
     if (parentPlan) {
-      setTargetStrategy((parentPlan.target_strategy as TargetStrategy) || 'roll_down');
-      setManagerOwnQuantity(parentPlan.manager_own_quantity_target || 0);
-      setManagerOwnRevenue(parentPlan.manager_own_revenue_target || 0);
+      setTargetStrategy(((parentPlan as any).target_strategy as TargetStrategy) || 'roll_down');
+      setManagerOwnQuantity((parentPlan as any).manager_own_quantity_target || 0);
+      setManagerOwnRevenue((parentPlan as any).manager_own_revenue_target || 0);
     }
   }, [parentPlan]);
 
@@ -332,7 +332,7 @@ export function AllocationTable({
       subordinatesOnly.forEach((sub: { subordinate_user_id: string; level: number }) => {
         const profile = profileMap.get(sub.subordinate_user_id);
         const existingPlan = planMap.get(sub.subordinate_user_id);
-        const savedStrategy = (existingPlan?.target_strategy as TargetStrategy) || 'roll_down';
+        const savedStrategy = ((existingPlan as any)?.target_strategy as TargetStrategy) || 'roll_down';
         
         nodeMap.set(sub.subordinate_user_id, {
           userId: sub.subordinate_user_id,
@@ -542,7 +542,7 @@ export function AllocationTable({
 
       const { error } = await supabase
         .from('user_business_plans')
-        .upsert(upserts, { onConflict: 'user_id,year' });
+        .upsert(upserts as any, { onConflict: 'user_id,year' });
       if (error) throw error;
 
       // Save parent manager's plan

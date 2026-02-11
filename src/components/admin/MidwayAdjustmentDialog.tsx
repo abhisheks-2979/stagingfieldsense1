@@ -106,7 +106,7 @@ export const MidwayAdjustmentDialog: React.FC<MidwayAdjustmentDialogProps> = ({
     try {
       if (adjustmentType === 'leave' && affectedUser) {
         // Mark the user's allocation as ended
-        await supabase
+        await (supabase as any)
           .from('hierarchy_target_allocations')
           .update({ effective_to: new Date().toISOString().split('T')[0] })
           .eq('hierarchy_target_id', hierarchyTargetId)
@@ -125,7 +125,7 @@ export const MidwayAdjustmentDialog: React.FC<MidwayAdjustmentDialogProps> = ({
             const perMemberRev = targetToRedistribute.revenue / otherMembers.length;
 
             for (const member of otherMembers) {
-              await supabase
+              await (supabase as any)
                 .from('hierarchy_target_allocations')
                 .update({
                   quantity_target: member.currentQuantityTarget + perMemberQty,
@@ -141,8 +141,8 @@ export const MidwayAdjustmentDialog: React.FC<MidwayAdjustmentDialogProps> = ({
             
             for (const member of otherMembers) {
               const proportion = totalCurrentRev > 0 ? member.currentRevenueTarget / totalCurrentRev : 1 / otherMembers.length;
-              await supabase
-                .from('hierarchy_target_allocations')
+              await (supabase
+                .from('hierarchy_target_allocations') as any)
                 .update({
                   quantity_target: member.currentQuantityTarget + (targetToRedistribute.quantity * proportion),
                   revenue_target: member.currentRevenueTarget + (targetToRedistribute.revenue * proportion),

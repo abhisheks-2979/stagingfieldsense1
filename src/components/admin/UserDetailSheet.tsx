@@ -115,7 +115,7 @@ export default function UserDetailSheet({
     setLoading(true);
     try {
       // Fetch employee data
-      const { data: employee } = await supabase
+      const { data: employee } = await (supabase as any)
         .from('employees')
         .select('*')
         .eq('user_id', userId)
@@ -149,10 +149,10 @@ export default function UserDetailSheet({
           anniversary_date: profile.anniversary_date,
           current_address: profile.current_address,
           permanent_address: profile.permanent_address,
-          designation: profile.designation,
+          designation: (profile as any).designation,
           work_location: profile.work_location,
           linkedin_url: profile.linkedin_url,
-          twitter_url: profile.twitter_url,
+          twitter_url: (profile as any).twitter_url,
           instagram_url: profile.instagram_url,
           facebook_url: profile.facebook_url,
           emergency_contact_name: profile.emergency_contact_name,
@@ -161,25 +161,25 @@ export default function UserDetailSheet({
       }
 
       // Fetch education history
-      const { data: educationData } = await supabase
+      const { data: educationData } = await (supabase as any)
         .from('education_history')
         .select('*')
         .eq('user_id', userId)
         .order('from_date', { ascending: false });
 
       if (educationData) {
-        setEducation(educationData);
+        setEducation(educationData as any);
       }
 
       // Fetch work experiences
-      const { data: workData } = await supabase
+      const { data: workData } = await (supabase as any)
         .from('work_experiences')
         .select('*')
         .eq('user_id', userId)
         .order('from_date', { ascending: false });
 
       if (workData) {
-        setWorkExperience(workData);
+        setWorkExperience(workData as any);
       }
     } catch (error) {
       console.error('Error fetching user details:', error);

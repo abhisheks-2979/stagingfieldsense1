@@ -125,7 +125,7 @@ export function TargetConfigTab({ fyYear, onLockedAndAssign }: TargetConfigTabPr
   const { data: existingConfig, isLoading } = useQuery({
     queryKey: ['fy-target-config', fyYear],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('fy_target_config')
         .select('*')
         .eq('fy_year', fyYear)
@@ -186,7 +186,7 @@ export function TargetConfigTab({ fyYear, onLockedAndAssign }: TargetConfigTabPr
   const saveMutation = useMutation({
     mutationFn: async (configData: TargetConfig) => {
       if (configData.id) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('fy_target_config')
           .update({
             target_plan_name: configData.target_plan_name,
@@ -216,7 +216,7 @@ export function TargetConfigTab({ fyYear, onLockedAndAssign }: TargetConfigTabPr
           });
         }
       } else {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('fy_target_config')
           .insert({
             fy_year: configData.fy_year,

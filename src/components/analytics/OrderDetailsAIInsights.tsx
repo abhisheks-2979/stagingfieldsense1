@@ -67,7 +67,7 @@ export const OrderDetailsAIInsights = ({ userName, dateRange }: OrderDetailsAIIn
             .lte('order_date', toDate),
 
           // Beats assigned to this user
-          supabase
+          (supabase as any)
             .from('beats')
             .select('id, beat_name, owner_id')
             .eq('owner_id', userId)
