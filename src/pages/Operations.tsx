@@ -277,7 +277,7 @@ const Operations = () => {
             // Handle relative signed URLs
             checkInPhotoUrl = signedUrlData.signedUrl.startsWith('http') 
               ? signedUrlData.signedUrl 
-              : `https://etabpbfokzhhfuybeieu.supabase.co/storage/v1${signedUrlData.signedUrl}`;
+              : `https://aoxdosjkwqyuvccuwhzc.supabase.co/storage/v1${signedUrlData.signedUrl}`;
           }
         }
 
@@ -289,7 +289,7 @@ const Operations = () => {
             // Handle relative signed URLs
             checkOutPhotoUrl = signedUrlData.signedUrl.startsWith('http')
               ? signedUrlData.signedUrl
-              : `https://etabpbfokzhhfuybeieu.supabase.co/storage/v1${signedUrlData.signedUrl}`;
+              : `https://aoxdosjkwqyuvccuwhzc.supabase.co/storage/v1${signedUrlData.signedUrl}`;
           }
         }
 
@@ -321,7 +321,7 @@ const Operations = () => {
                 if (signedUrlData?.signedUrl) {
                   attendancePhotoUrl = signedUrlData.signedUrl.startsWith('http') 
                     ? signedUrlData.signedUrl 
-                    : `https://etabpbfokzhhfuybeieu.supabase.co/storage/v1${signedUrlData.signedUrl}`;
+                    : `https://aoxdosjkwqyuvccuwhzc.supabase.co/storage/v1${signedUrlData.signedUrl}`;
                 }
               }
             }

@@ -122,7 +122,7 @@ export const UserDeleteDialog: React.FC<UserDeleteDialogProps> = ({
       if (!session) throw new Error('Not authenticated');
 
       const response = await fetch(
-        `https://etabpbfokzhhfuybeieu.supabase.co/functions/v1/admin-delete-user`,
+        `https://aoxdosjkwqyuvccuwhzc.supabase.co/functions/v1/admin-delete-user`,
         {
           method: 'POST',
           headers: {
