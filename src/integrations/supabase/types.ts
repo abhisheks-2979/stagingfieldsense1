@@ -14,6 +14,88 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_events: {
+        Row: {
+          activity_date: string
+          activity_name: string | null
+          activity_type: string
+          created_at: string
+          duration_type: string
+          end_time: string | null
+          from_date: string | null
+          half_day_type: string | null
+          id: string
+          remarks: string | null
+          retailer_id: string | null
+          retailer_name: string | null
+          start_time: string | null
+          to_date: string | null
+          total_days: number | null
+          user_id: string
+          visit_id: string | null
+        }
+        Insert: {
+          activity_date?: string
+          activity_name?: string | null
+          activity_type?: string
+          created_at?: string
+          duration_type?: string
+          end_time?: string | null
+          from_date?: string | null
+          half_day_type?: string | null
+          id?: string
+          remarks?: string | null
+          retailer_id?: string | null
+          retailer_name?: string | null
+          start_time?: string | null
+          to_date?: string | null
+          total_days?: number | null
+          user_id: string
+          visit_id?: string | null
+        }
+        Update: {
+          activity_date?: string
+          activity_name?: string | null
+          activity_type?: string
+          created_at?: string
+          duration_type?: string
+          end_time?: string | null
+          from_date?: string | null
+          half_day_type?: string | null
+          id?: string
+          remarks?: string | null
+          retailer_id?: string | null
+          retailer_name?: string | null
+          start_time?: string | null
+          to_date?: string | null
+          total_days?: number | null
+          user_id?: string
+          visit_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_events_retailer_id_fkey"
+            columns: ["retailer_id"]
+            isOneToOne: false
+            referencedRelation: "retailers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "activity_events_visit_id_fkey"
+            columns: ["visit_id"]
+            isOneToOne: false
+            referencedRelation: "visits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       additional_expenses: {
         Row: {
           amount: number
@@ -4562,6 +4644,72 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      fy_target_config: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          enable_quantity: boolean | null
+          enable_revenue: boolean | null
+          enable_visits: boolean | null
+          enabled_parameters: Json | null
+          fy_year: number
+          id: string
+          is_locked: boolean | null
+          quantity_unit: string | null
+          setup_completed: boolean | null
+          target_end_month: number
+          target_period_type: string | null
+          target_plan_name: string | null
+          target_start_month: number
+          total_quantity_target: number | null
+          total_revenue_target: number | null
+          total_visits_target: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          enable_quantity?: boolean | null
+          enable_revenue?: boolean | null
+          enable_visits?: boolean | null
+          enabled_parameters?: Json | null
+          fy_year: number
+          id?: string
+          is_locked?: boolean | null
+          quantity_unit?: string | null
+          setup_completed?: boolean | null
+          target_end_month?: number
+          target_period_type?: string | null
+          target_plan_name?: string | null
+          target_start_month?: number
+          total_quantity_target?: number | null
+          total_revenue_target?: number | null
+          total_visits_target?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          enable_quantity?: boolean | null
+          enable_revenue?: boolean | null
+          enable_visits?: boolean | null
+          enabled_parameters?: Json | null
+          fy_year?: number
+          id?: string
+          is_locked?: boolean | null
+          quantity_unit?: string | null
+          setup_completed?: boolean | null
+          target_end_month?: number
+          target_period_type?: string | null
+          target_plan_name?: string | null
+          target_start_month?: number
+          total_quantity_target?: number | null
+          total_revenue_target?: number | null
+          total_visits_target?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       gamification_actions: {
         Row: {
@@ -11844,11 +11992,14 @@ export type Database = {
           created_at: string
           fiscal_year: string
           id: string
+          manager_own_quantity_target: number | null
+          manager_own_revenue_target: number | null
           notes: string | null
           quantity_target: number | null
           quantity_unit: string | null
           revenue_target: number | null
           status: string | null
+          target_strategy: string
           tenant_id: string | null
           updated_at: string
           user_id: string
@@ -11860,11 +12011,14 @@ export type Database = {
           created_at?: string
           fiscal_year: string
           id?: string
+          manager_own_quantity_target?: number | null
+          manager_own_revenue_target?: number | null
           notes?: string | null
           quantity_target?: number | null
           quantity_unit?: string | null
           revenue_target?: number | null
           status?: string | null
+          target_strategy?: string
           tenant_id?: string | null
           updated_at?: string
           user_id: string
@@ -11876,11 +12030,14 @@ export type Database = {
           created_at?: string
           fiscal_year?: string
           id?: string
+          manager_own_quantity_target?: number | null
+          manager_own_revenue_target?: number | null
           notes?: string | null
           quantity_target?: number | null
           quantity_unit?: string | null
           revenue_target?: number | null
           status?: string | null
+          target_strategy?: string
           tenant_id?: string | null
           updated_at?: string
           user_id?: string
