@@ -57,21 +57,10 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get all users from auth with admin privileges
-    const { data: { users: authUsers }, error: authError } = await supabaseAdmin.auth.admin.listUsers()
-    
-    if (authError) {
-      console.error('Error fetching auth users:', authError)
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch auth users' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Get profiles data
+    // Get profiles data as primary source (avoids auth.admin.listUsers database errors)
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, full_name, phone_number, recovery_email, created_at, profile_picture_url, user_status')
+      .select('id, username, full_name, phone_number, recovery_email, created_at, profile_picture_url, user_status, email')
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError)
@@ -90,34 +79,39 @@ Deno.serve(async (req) => {
       console.error('Error fetching user roles:', rolesError)
     }
 
-    // Combine all data
-    const usersWithDetails = authUsers.map(authUser => {
-      const profile = profiles?.find(p => p.id === authUser.id)
-      const roleData = userRoles?.find(r => r.user_id === authUser.id)
+    // Get tenant_users for tenant info
+    const { data: tenantUsers } = await supabaseAdmin
+      .from('tenant_users')
+      .select('user_id, tenant_id, tenants(name)')
+
+    // Combine all data from profiles
+    const usersWithDetails = (profiles || []).map((profile: any) => {
+      const roleData = userRoles?.find((r: any) => r.user_id === profile.id)
+      const tenantData = tenantUsers?.find((t: any) => t.user_id === profile.id)
       
       return {
-        id: authUser.id,
-        email: authUser.email || 'No email',
-        username: profile?.username || 'N/A',
-        full_name: profile?.full_name || 'N/A',
-        phone_number: profile?.phone_number || 'N/A',
-        recovery_email: profile?.recovery_email || 'N/A',
+        id: profile.id,
+        email: profile.email || 'No email',
+        username: profile.username || 'N/A',
+        full_name: profile.full_name || 'N/A',
+        phone_number: profile.phone_number || 'N/A',
+        recovery_email: profile.recovery_email || 'N/A',
         role: roleData?.role || 'user',
-        assigned_at: roleData?.assigned_at || authUser.created_at,
-        created_at: authUser.created_at,
-        last_sign_in_at: authUser.last_sign_in_at,
-        email_confirmed_at: authUser.email_confirmed_at,
-        confirmed_at: authUser.confirmed_at,
-        phone: authUser.phone,
-        app_metadata: authUser.app_metadata,
-        user_metadata: authUser.user_metadata,
+        assigned_at: roleData?.assigned_at || profile.created_at,
+        created_at: profile.created_at,
+        last_sign_in_at: null,
+        email_confirmed_at: null,
+        confirmed_at: null,
+        phone: null,
+        app_metadata: {},
+        user_metadata: {},
         profile: {
-          id: profile?.id || authUser.id,
-          username: profile?.username || 'N/A',
-          full_name: profile?.full_name || 'N/A',
-          created_at: profile?.created_at || authUser.created_at,
-          profile_picture_url: profile?.profile_picture_url,
-          user_status: profile?.user_status || 'active'
+          id: profile.id,
+          username: profile.username || 'N/A',
+          full_name: profile.full_name || 'N/A',
+          created_at: profile.created_at,
+          profile_picture_url: profile.profile_picture_url,
+          user_status: profile.user_status || 'active'
         }
       }
     })
