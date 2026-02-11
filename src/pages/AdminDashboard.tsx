@@ -350,7 +350,7 @@ export const AdminDashboard = () => {
     
     const { data, error } = await supabase
       .from('profiles')
-      .update({ user_status: newStatus })
+      .update({ user_status: newStatus } as any)
       .eq('id', userId)
       .select('user_status')
       .single();

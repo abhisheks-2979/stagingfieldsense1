@@ -70,7 +70,7 @@ export const UserObjectPermissions = () => {
     queryFn: async () => {
       if (!selectedUserId) return [];
       
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('user_object_permissions')
         .select('*')
         .eq('user_id', selectedUserId);
@@ -131,7 +131,7 @@ export const UserObjectPermissions = () => {
         ...perms
       }));
 
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('user_object_permissions')
         .upsert(updates, { onConflict: 'user_id,object_name' });
       
@@ -150,7 +150,7 @@ export const UserObjectPermissions = () => {
   // Clear user permissions mutation
   const clearMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('user_object_permissions')
         .delete()
         .eq('user_id', selectedUserId);

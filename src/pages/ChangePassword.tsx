@@ -64,7 +64,7 @@ const ChangePassword = () => {
       }
 
       // Clear the must_change_password flag
-      const { error: profileError } = await supabase
+      const { error: profileError } = await (supabase as any)
         .from('profiles')
         .update({ must_change_password: false })
         .eq('id', user.id);

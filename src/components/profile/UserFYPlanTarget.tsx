@@ -699,7 +699,7 @@ export function UserFYPlanTarget({
       });
       
       // Use saved working_days if exists, otherwise calculate automatically
-      const savedWorkingDays = existing?.working_days;
+      const savedWorkingDays = (existing as any)?.working_days;
       const calculatedWorkingDays = getWorkingDaysInMonth(m.number, selectedPlan.year);
       
       return {

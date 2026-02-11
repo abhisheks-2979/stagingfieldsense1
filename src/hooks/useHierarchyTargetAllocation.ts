@@ -34,7 +34,7 @@ export const useHierarchyTargetAllocation = (userId?: string, fyYear?: number) =
     queryFn: async () => {
       if (!effectiveUserId || !fyYear) return null;
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('hierarchy_target_allocations')
         .select(`
           *,

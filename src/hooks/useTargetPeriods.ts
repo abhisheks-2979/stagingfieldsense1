@@ -17,7 +17,7 @@ export function useTargetPeriods({ fyConfigId }: UseTargetPeriodsParams) {
     queryFn: async (): Promise<PeriodTarget[]> => {
       if (!fyConfigId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('fy_period_targets')
         .select('*')
         .eq('fy_config_id', fyConfigId)
@@ -50,7 +50,7 @@ export function useTargetPeriods({ fyConfigId }: UseTargetPeriodsParams) {
     }) => {
       if (periodType === 'annual') {
         // Delete any existing period targets
-        const { error: deleteError } = await supabase
+        const { error: deleteError } = await (supabase as any)
           .from('fy_period_targets')
           .delete()
           .eq('fy_config_id', configId);
@@ -71,7 +71,7 @@ export function useTargetPeriods({ fyConfigId }: UseTargetPeriodsParams) {
       }));
 
       // First delete existing periods for this config
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await (supabase as any)
         .from('fy_period_targets')
         .delete()
         .eq('fy_config_id', configId);
@@ -80,7 +80,7 @@ export function useTargetPeriods({ fyConfigId }: UseTargetPeriodsParams) {
 
       // Then insert new periods
       if (periodsToSave.length > 0) {
-        const { error: insertError } = await supabase
+        const { error: insertError } = await (supabase as any)
           .from('fy_period_targets')
           .insert(periodsToSave);
 

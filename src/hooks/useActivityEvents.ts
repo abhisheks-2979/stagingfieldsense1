@@ -50,7 +50,7 @@ export const useActivityEvents = () => {
       return activityCache.get(visitId) || null;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('activity_events')
       .select('*')
       .eq('visit_id', visitId)
@@ -126,7 +126,7 @@ export const useActivityEvents = () => {
         remarks: params.remarks || null,
       };
 
-      const { data: activityData, error: activityError } = await supabase
+      const { data: activityData, error: activityError } = await (supabase as any)
         .from('activity_events')
         .insert(activityInsert as any)
         .select('id')
@@ -142,7 +142,7 @@ export const useActivityEvents = () => {
       // Dispatch event for UI refresh
       window.dispatchEvent(new CustomEvent('visitDataChanged'));
 
-      return { visitId, activityId: activityData.id };
+      return { visitId, activityId: (activityData as any).id };
     } catch (error) {
       console.error('[useActivityEvents] createActivity failed:', error);
       return null;
@@ -150,7 +150,7 @@ export const useActivityEvents = () => {
   };
 
   const fetchActivitiesForDate = useCallback(async (userId: string, date: string): Promise<ActivityEvent[]> => {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('activity_events')
       .select('*')
       .eq('user_id', userId)

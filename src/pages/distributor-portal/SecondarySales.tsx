@@ -443,7 +443,7 @@ const SecondarySales = () => {
 
   // Check if a ledger entry already exists for an order
   const checkLedgerExists = async (orderId: string): Promise<boolean> => {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('distributor_inventory_transactions')
       .select('id')
       .eq('reference_id', orderId)

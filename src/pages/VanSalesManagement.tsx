@@ -176,7 +176,7 @@ export default function VanSalesManagement() {
 
   const loadOpeningGRNEdits = async () => {
     try {
-      const { data: edits, error } = await supabase
+      const { data: edits, error } = await (supabase as any)
         .from('van_stock_opening_edits')
         .select('*, van_stock(stock_date, user_id)')
         .order('created_at', { ascending: false });
@@ -184,7 +184,7 @@ export default function VanSalesManagement() {
       if (error) throw error;
 
       // Get user names
-      const userIds = [...new Set(edits?.map(e => (e.van_stock as any)?.user_id).filter(Boolean) || [])];
+      const userIds = [...new Set(edits?.map((e: any) => (e.van_stock as any)?.user_id).filter(Boolean) || [])] as string[];
       const { data: profiles } = await supabase
         .from('profiles')
         .select('id, full_name')

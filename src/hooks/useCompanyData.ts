@@ -54,7 +54,7 @@ export const useCompanyData = () => {
 
   const fetchCompany = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('companies')
         .select('id, name, logo_url, header_name, header_logo_url')
         .limit(1)

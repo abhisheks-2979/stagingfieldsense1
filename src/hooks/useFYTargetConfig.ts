@@ -32,21 +32,21 @@ export interface FYTargetConfig {
    return useQuery({
      queryKey: ['fy-target-config', fyYear],
      queryFn: async (): Promise<FYTargetConfig | null> => {
-       const { data, error } = await supabase
-         .from('fy_target_config')
-         .select('*')
-         .eq('fy_year', fyYear)
-         .maybeSingle();
+      const { data, error } = await (supabase as any)
+          .from('fy_target_config')
+          .select('*')
+          .eq('fy_year', fyYear)
+          .maybeSingle();
  
        if (error) {
          console.error('Error fetching FY target config:', error);
          return null;
        }
  
-       return data ? {
-         ...data,
-         enabled_parameters: data.enabled_parameters as EnabledParameters | null,
-       } : null;
+      return data ? {
+          ...(data as any),
+          enabled_parameters: (data as any).enabled_parameters as EnabledParameters | null,
+        } as FYTargetConfig : null;
      },
      staleTime: 5 * 60 * 1000, // 5 minutes
    });

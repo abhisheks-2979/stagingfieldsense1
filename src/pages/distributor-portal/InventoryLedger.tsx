@@ -81,7 +81,7 @@ const InventoryLedger = () => {
       setLoading(true);
 
       // Load transactions
-      const { data: txData, error } = await supabase
+      const { data: txData, error } = await (supabase as any)
         .from('distributor_inventory_transactions')
         .select('*')
         .eq('distributor_id', distributorId)
@@ -92,7 +92,7 @@ const InventoryLedger = () => {
       if (error) throw error;
 
       // Get product names
-      const productIds = [...new Set(txData?.map(t => t.product_id) || [])];
+      const productIds = [...new Set((txData as any[])?.map((t: any) => t.product_id) || [])];
       let productMap = new Map<string, string>();
       
       if (productIds.length > 0) {
@@ -103,7 +103,7 @@ const InventoryLedger = () => {
         productsData?.forEach(p => productMap.set(p.id, p.name));
       }
 
-      setTransactions(txData?.map(t => ({
+      setTransactions((txData as any[])?.map((t: any) => ({
         ...t,
         product_name: productMap.get(t.product_id) || 'Unknown Product',
       })) || []);

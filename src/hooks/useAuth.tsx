@@ -271,13 +271,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (secProfile) localStorage.setItem('cached_security_profile', secProfile);
           
           // Check if user must change password
-          const { data: profileData } = await supabase
+          const { data: profileData } = await (supabase as any)
             .from('profiles')
             .select('must_change_password')
             .eq('id', session.user.id)
             .maybeSingle();
           
-          if (profileData?.must_change_password) {
+          if ((profileData as any)?.must_change_password) {
             setMustChangePassword(true);
           }
         } catch (err) {
@@ -361,7 +361,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .eq('id', data.user.id)
         .maybeSingle();
       
-      if (statusCheck?.user_status === 'inactive') {
+      if ((statusCheck as any)?.user_status === 'inactive') {
         await supabase.auth.signOut();
         toast.error('Your account has been deactivated. Please contact your administrator.');
         throw new Error('Account is inactive');
@@ -371,13 +371,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUserProfile(profile);
       
       // Check if user must change password
-      const { data: profileData } = await supabase
+      const { data: profileData } = await (supabase as any)
         .from('profiles')
         .select('must_change_password')
         .eq('id', data.user.id)
         .maybeSingle();
       
-      if (profileData?.must_change_password) {
+      if ((profileData as any)?.must_change_password) {
         setMustChangePassword(true);
         toast.info('Please change your password to continue');
         // Don't redirect here - let RoleBasedAuthPage handle it with query params preserved

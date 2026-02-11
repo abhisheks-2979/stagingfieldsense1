@@ -320,13 +320,13 @@ const CompanyReturns = () => {
               .eq('id', invItem.id);
 
             // Log transaction
-            await supabase
+            await (supabase as any)
               .from('distributor_inventory_transactions')
               .insert({
                 distributor_id: distributorId,
                 product_id: item.product_id,
                 transaction_type: 'return_to_company',
-                quantity: -item.quantity, // Negative for outgoing
+                quantity: -item.quantity,
                 reference_type: 'company_return',
                 reference_id: returnId,
                 reference_number: creditNoteNumber,

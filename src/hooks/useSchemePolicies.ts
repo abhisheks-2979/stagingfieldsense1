@@ -40,7 +40,7 @@ export function useSchemePolicies() {
         }
 
         if (data && data.length > 0) {
-          const policyMap = data.reduce((acc, p) => {
+          const policyMap = data.reduce((acc: Record<string, any>, p: any) => {
             acc[p.policy_name] = p.policy_value;
             return acc;
           }, {} as Record<string, any>);
