@@ -531,10 +531,10 @@ const Attendance = () => {
       if (attendanceType === 'check-in') {
         console.log('Starting check-in process...');
         
-        // Mark attendance with face verification result
+        // Mark attendance with face verification result (upsert to handle existing records)
         const { error: attendanceError } = await supabase
           .from('attendance')
-          .insert({
+          .upsert({
             user_id: user.id,
             date: today,
             check_in_time: timestamp,
@@ -544,7 +544,7 @@ const Attendance = () => {
             status: 'present',
             face_verification_status: matchStatus,
             face_match_confidence: confidence
-          });
+          }, { onConflict: 'user_id,date' });
 
         const isOfflineInsertError = !!attendanceError && shouldSuppressError(attendanceError);
 
