@@ -57,10 +57,10 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get profiles data as primary source (avoids auth.admin.listUsers database errors)
+    // Get profiles data
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, full_name, phone_number, recovery_email, created_at, profile_picture_url, user_status, email')
+      .select('id, username, full_name, phone_number, recovery_email, created_at, profile_picture_url, user_status')
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError)
@@ -68,6 +68,30 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: 'Failed to fetch profiles' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    }
+
+    // Get emails from auth via GoTrue REST API (avoids auth.admin.listUsers database errors)
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    let authEmailMap: Record<string, string> = {}
+    try {
+      const authRes = await fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=1000`, {
+        headers: {
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+      })
+      if (authRes.ok) {
+        const authData = await authRes.json()
+        const users = authData.users || authData
+        if (Array.isArray(users)) {
+          for (const u of users) {
+            if (u.id && u.email) authEmailMap[u.id] = u.email
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch auth users for emails:', e)
     }
 
     // Get user roles
@@ -79,19 +103,13 @@ Deno.serve(async (req) => {
       console.error('Error fetching user roles:', rolesError)
     }
 
-    // Get tenant_users for tenant info
-    const { data: tenantUsers } = await supabaseAdmin
-      .from('tenant_users')
-      .select('user_id, tenant_id, tenants(name)')
-
     // Combine all data from profiles
     const usersWithDetails = (profiles || []).map((profile: any) => {
       const roleData = userRoles?.find((r: any) => r.user_id === profile.id)
-      const tenantData = tenantUsers?.find((t: any) => t.user_id === profile.id)
       
       return {
         id: profile.id,
-        email: profile.email || 'No email',
+        email: authEmailMap[profile.id] || profile.recovery_email || 'No email',
         username: profile.username || 'N/A',
         full_name: profile.full_name || 'N/A',
         phone_number: profile.phone_number || 'N/A',
