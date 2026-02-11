@@ -254,58 +254,25 @@ serve(async (req) => {
         );
       }
     } else {
-      // Create new auth user via signUp endpoint (admin createUser has database errors)
-      const signUpResponse = await fetch(`${supabaseUrl}/auth/v1/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          data: userMetadata,
-        }),
+      // Create new auth user via direct SQL function (bypasses broken GoTrue auth service)
+      const { data: newUserId, error: rpcError } = await supabaseAdmin.rpc('admin_create_auth_user', {
+        p_email: email,
+        p_password: password,
+        p_user_metadata: userMetadata,
       });
 
-      const signUpResult = await signUpResponse.json();
-
-      if (!signUpResponse.ok) {
-        console.error('Auth signup error:', signUpResult);
+      if (rpcError || !newUserId) {
+        console.error('Auth creation error via RPC:', rpcError);
         return new Response(
           JSON.stringify({ 
             error: 'Failed to create user account', 
-            details: signUpResult.msg || signUpResult.message || JSON.stringify(signUpResult)
+            details: rpcError?.message || 'No user ID returned'
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      const newUserId = signUpResult.id || signUpResult.user?.id;
-      if (!newUserId) {
-        console.error('User creation returned no user id:', signUpResult);
-        return new Response(
-          JSON.stringify({ error: 'User creation failed - no user returned' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
       
       authUserId = newUserId;
-
-      // Confirm the email using admin API via REST
-      try {
-        await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUserId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseServiceKey}`,
-            'apikey': supabaseServiceKey,
-          },
-          body: JSON.stringify({ email_confirm: true }),
-        });
-      } catch (confirmErr) {
-        console.error('Email confirm error (non-blocking):', confirmErr);
-      }
     }
 
     console.log('Auth user created/updated:', authUserId);
