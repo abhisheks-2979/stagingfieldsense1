@@ -363,13 +363,13 @@ export const SchemeMaster = () => {
         // Insert new rules
         const rulesToInsert = applicabilityRules.map(rule => ({
           scheme_id: schemeId,
-          applicability_level: rule.level,
+          applicability_type: rule.level,
           entity_id: rule.entityId || null,
           entity_name: rule.entityName,
           include_children: rule.includeChildren
         }));
         
-        await supabase.from('scheme_applicability').insert(rulesToInsert);
+        await supabase.from('scheme_applicability').insert(rulesToInsert as any);
       } else if (schemeId && schemeForm.applicability_type === 'global') {
         // Clear rules if global
         await supabase.from('scheme_applicability').delete().eq('scheme_id', schemeId);
@@ -515,8 +515,8 @@ export const SchemeMaster = () => {
         .eq('scheme_id', schemeId);
       
       if (data) {
-        setApplicabilityRules(data.map(r => ({
-          level: r.applicability_level as ApplicabilityRule['level'],
+        setApplicabilityRules(data.map((r: any) => ({
+          level: (r.applicability_level || r.applicability_type) as ApplicabilityRule['level'],
           entityId: r.entity_id || '',
           entityName: r.entity_name || '',
           includeChildren: r.include_children ?? true

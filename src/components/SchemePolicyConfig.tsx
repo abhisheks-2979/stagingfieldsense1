@@ -47,7 +47,7 @@ export const SchemePolicyConfig = ({ trigger, inline = false }: SchemePolicyConf
   const fetchPolicies = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('scheme_policy_config')
         .select('policy_name, policy_value')
         .eq('is_active', true);
@@ -82,7 +82,7 @@ export const SchemePolicyConfig = ({ trigger, inline = false }: SchemePolicyConf
 
       // Update each policy
       const updates = Object.entries(policies).map(([name, value]) =>
-        supabase
+        (supabase as any)
           .from('scheme_policy_config')
           .update({ policy_value: value, updated_at: new Date().toISOString() })
           .eq('policy_name', name)

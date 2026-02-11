@@ -47,7 +47,7 @@ export function HierarchyAllocationTab({ fyYear }: HierarchyAllocationTabProps) 
   const { data: config, isLoading } = useQuery({
     queryKey: ['fy-target-config', fyYear],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('fy_target_config')
         .select('*')
         .eq('fy_year', fyYear)
