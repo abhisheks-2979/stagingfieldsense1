@@ -1,0 +1,1 @@
+DELETE FROM attendance WHERE user_id = '4f182aa0-078a-4dc9-8947-4447940b8d0f' AND date = CURRENT_DATE;
